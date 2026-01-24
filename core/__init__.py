@@ -1,0 +1,1 @@
+from .image_processor import extract_frames
