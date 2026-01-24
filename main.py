@@ -1,4 +1,4 @@
-from core import extract_frames
+from modules.vision import extract_frames
 
 if __name__ == "__main__":
     """
