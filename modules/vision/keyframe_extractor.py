@@ -96,3 +96,57 @@ def extract_frames(video_path, output_folder, sensitivity=0.01, min_interval=0.5
 
     cap.release()
     print("\n完成！")
+
+import subprocess
+import os
+import sys
+
+def extract_frames_fast(video_path, output_folder):
+    """
+    使用 FFmpeg 从视频中提取关键帧 (I-frames)。
+    
+    :param video_path: 视频文件的路径 (例如: "input.mp4")
+    :param output_folder: 保存图片的文件夹路径
+    """
+    
+    # 1. 检查输入文件是否存在
+    if not os.path.exists(video_path):
+        print(f"错误: 找不到视频文件 '{video_path}'")
+        return
+
+    # 2. 如果输出目录不存在，则创建
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+        print(f"已创建输出目录: {output_folder}")
+
+    # 3. 构建 FFmpeg 命令
+    # 核心参数解释:
+    # -vf "select='eq(pict_type,I)'": 视频过滤器，只选择图片类型为 'I' (关键帧) 的帧
+    # -vsync vfr: 可变帧率。丢弃未被选择的帧，防止 FFmpeg 复制帧来维持原始帧率
+    # -q:v 2: 图片质量 (1-31, 1质量最高)。2 是非常好的质量
+    
+    output_pattern = os.path.join(output_folder, "keyframe_%03d.jpg")
+    
+    command = [
+        'ffmpeg',
+        '-i', video_path,                   # 输入文件
+        '-vf', "select='eq(pict_type,I)'",  # 过滤器：只选关键帧
+        '-vsync', 'vfr',                    # 丢弃非选定帧
+        '-q:v', '2',                        # JPG 质量控制
+        output_pattern                      # 输出文件模版
+    ]
+
+    print(f"正在开始提取关键帧，请稍候...")
+    print(f"执行命令: {' '.join(command)}")
+
+    try:
+        # 4. 执行命令
+        # capture_output=True 可以捕获日志，如果不需要看到详细刷屏可以保留
+        result = subprocess.run(command, check=True, text=True, capture_output=False)
+        print("-" * 30)
+        print(f"成功！关键帧已提取到: {output_folder}")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"FFmpeg 执行出错: {e}")
+    except FileNotFoundError:
+        print("错误: 系统未找到 'ffmpeg' 命令。请确保已安装 FFmpeg 并配置了环境变量。")
