@@ -4,7 +4,16 @@ opencv-python>=4.8.0
 # OpenCV 的基础依赖（通常安装 opencv 时会自动安装，但建议写上）
 numpy>=1.24.0
 
+#audio部分的依赖
+openai-whisper
+pydub
+audioop-lts
 # PaddleOCR 依赖
 --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
 paddlepaddle==3.2.0
 paddleocr
+
+#线上视频处理
+ffmpeg-python
+Requests==2.32.5
+static_ffmpeg==3.0
