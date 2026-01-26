@@ -8,3 +8,7 @@ numpy>=1.24.0
 openai-whisper
 pydub
 audioop-lts
+# PaddleOCR 依赖
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+paddlepaddle==3.2.0
+paddleocr
