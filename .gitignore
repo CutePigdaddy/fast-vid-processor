@@ -54,7 +54,10 @@ cover/
 # Translations
 *.mo
 *.pot
-
+distract_output/
+test_output/
+.history/
+.test.py  
 # Django stuff:
 *.log
 local_settings.py
