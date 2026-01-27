@@ -142,7 +142,8 @@ class LongAudioProcessor:
             
             # 使用Whisper转录
             logger.debug(f"正在转录临时文件: {temp_path}")
-            result = self.model.transcribe(temp_path)
+            result = self.model.transcribe(temp_path,language='zh',
+                                           initial_prompt="请使用简体中文转写以下内容。",verbose=False)
             
             # 调整时间戳：加上片段的起始时间
             segment_start_s = segment_start_ms / 1000.0
@@ -355,5 +356,5 @@ def process_audio(audio_path: str, model_size: str = "medium") -> Dict:
 
 if __name__ == "__main__":
     # 示例调用：修改为实际音频路径和所需模型
-    sample_audio = "C:\\Users\\15352\\Desktop\\test1\\test.mp3"
+    sample_audio = "C:\\Users\\15352\\Desktop\\test1\\第14课 价值底线：什么是“三观一致”？b .mp3"
     process_audio(sample_audio, model_size="medium")
