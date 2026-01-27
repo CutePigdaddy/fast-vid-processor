@@ -3,7 +3,13 @@ import tempfile
 import logging
 from typing import List, Tuple, Dict, Optional
 from pydub import AudioSegment
-import whisper
+from faster_whisper import WhisperModel
+
+# 尝试导入 torch 以检测 GPU 可用性；若不可用则设为 None
+try:
+    import torch
+except Exception:
+    torch = None
 
 
 # 配置日志
@@ -31,7 +37,7 @@ class LongAudioProcessor:
     并保持原始时间戳的准确性。
     """
     
-    def __init__(self, model_size: str = "base", config: Optional[AudioProcessorConfig] = None):
+    def __init__(self, model_size: str = "base", device_override: Optional[str] = None, config: Optional[AudioProcessorConfig] = None):
         """
         初始化处理器
         Args:
@@ -39,8 +45,43 @@ class LongAudioProcessor:
             config: 自定义配置对象
         """
         try:
-            logger.info(f"正在加载 Whisper 模型: {model_size}")
-            self.model = whisper.load_model(model_size)
+            # 支持手动覆盖设备（device_override），例如用于在无法联网时强制使用 CPU 进行测试
+            device = "cpu"
+            if device_override is not None:
+                device = device_override
+                logger.info(f"强制使用设备: {device}（由 device_override 指定）")
+            else:
+                # 自动检测是否有可用 GPU（CUDA）
+                if torch is not None:
+                    try:
+                        if torch.cuda.is_available():
+                            device = "cuda"
+                            logger.info(f"检测到可用 GPU，使用设备: {device}")
+                        else:
+                            logger.info("未检测到可用 GPU，使用 CPU 进行推理")
+                    except Exception as e:
+                        logger.warning(f"检查 CUDA 可用性时出现问题: {e}; 将使用 CPU")
+                        device = "cpu"
+                else:
+                    logger.info("未安装 torch，默认使用 CPU（若 Whisper 依赖 torch，这里会抛出错误）")
+
+            logger.info(f"正在加载 faster-whisper 模型: {model_size} (device={device})")
+
+            # 选择 compute_type：GPU 使用 float16，CPU 尝试 int8（若不可用回退到 float32）
+            compute_type = None
+            if device == "cuda":
+                compute_type = "float16"
+            else:
+                compute_type = "int8"
+
+            try:
+                self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+            except Exception as e:
+                logger.warning(f"使用 compute_type={compute_type} 加载模型失败: {e}; 尝试回退到 float32")
+                self.model = WhisperModel(model_size, device=device, compute_type="float32")
+
+            # 保存设备信息以备后续使用/日志
+            self.device = device
             self.config = config or AudioProcessorConfig()
             logger.info("处理器初始化完成")
         except Exception as e:
@@ -140,19 +181,33 @@ class LongAudioProcessor:
             # 将音频片段导出为指定格式
             audio_segment.export(temp_path, format=self.config.TEMP_AUDIO_FORMAT)
             
-            # 使用Whisper转录
+            # 使用 faster_whisper 转录（返回 segments iterable 和 info）
             logger.debug(f"正在转录临时文件: {temp_path}")
-            result = self.model.transcribe(temp_path,language='zh',
-                                           initial_prompt="请使用简体中文转写以下内容。",verbose=False)
-            
-            # 调整时间戳：加上片段的起始时间
+            segments_iter, info = self.model.transcribe(
+                temp_path,
+                language="zh",
+                initial_prompt="请使用简体中文转写以下内容。",
+                beam_size=5
+            )
+
+            segments_list = list(segments_iter)
             segment_start_s = segment_start_ms / 1000.0
-            
-            if "segments" in result:
-                for segment in result["segments"]:
-                    segment["start"] += segment_start_s
-                    segment["end"] += segment_start_s
-            
+     
+            # 构建与原来兼容的 result 字典
+            result_segments = []
+            for seg in segments_list:
+                result_segments.append({
+                    "start": seg.start + segment_start_s,
+                    "end": seg.end + segment_start_s,
+                    "text": seg.text
+                })
+
+            result = {
+                "text": " ".join([s["text"] for s in result_segments]),
+                "segments": result_segments,
+                "language": getattr(info, "language", None) if info is not None else None
+            }
+
             logger.debug(f"片段转录完成，包含 {len(result.get('segments', []))} 条")
             return result
             
@@ -317,7 +372,7 @@ class LongAudioProcessor:
         
         return f"{format_time(start)} - {format_time(end)}"
 
-def process_audio(audio_path: str, model_size: str = "medium") -> Dict:
+def process_audio(audio_path: str, model_size: str = "medium", device_override: Optional[str] = None) -> Dict:
     """处理音频并保存转录结果。
 
     Args:
@@ -330,7 +385,7 @@ def process_audio(audio_path: str, model_size: str = "medium") -> Dict:
     try:
         # 初始化处理器
         logger.info("初始化音频处理器...")
-        processor = LongAudioProcessor(model_size=model_size)
+        processor = LongAudioProcessor(model_size=model_size, device_override=device_override)
 
         result = processor.process_long_audio(audio_path)
 
@@ -356,5 +411,13 @@ def process_audio(audio_path: str, model_size: str = "medium") -> Dict:
 
 if __name__ == "__main__":
     # 示例调用：修改为实际音频路径和所需模型
-    sample_audio = "C:\\Users\\15352\\Desktop\\test1\\第14课 价值底线：什么是“三观一致”？b .mp3"
+    sample_audio = "C:\\Users\\15352\\Desktop\\test1\\第14课 价值底线：什么是“三观一致”？.mp3"
+    
+    # 默认：自动检测 GPU（若可用）或使用 CPU
     process_audio(sample_audio, model_size="medium")
+    
+    # 强制使用 CPU 进行测试（用于调试或在无法联网的环境中）：
+    # process_audio(sample_audio, model_size="medium", device_override="cpu")
+    
+    # 强制使用 GPU：
+    # process_audio(sample_audio, model_size="medium", device_override="cuda")
