@@ -1,6 +1,8 @@
 import requests
+import json
 import time
 import qrcode
+import os
 Session = requests.Session()
 HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
@@ -14,8 +16,16 @@ class BilibiliLoginManager:
   def __init__(self,cookie_file="cookies.json"):
     self.cookie_file = cookie_file
     self.session = requests.Session()
-    self.cookies = {}
     self.session.headers.update(HEADERS)
+    if os.path.exists(cookie_file):
+      with open(cookie_file,'r') as f:
+        cookies = json.load(f)
+        self.session.cookies.update(cookies)
+        if self.check_login_status() == True:
+          print("当前登录凭证可用！")
+    else:
+      print("无本地存储登录凭证，请登录")
+
   
   def set_manual_cookies(self,input_cookies):
     if isinstance(input_cookies,str):
@@ -68,6 +78,9 @@ class BilibiliLoginManager:
         print("二维码已失效，请重试")
         return 
       time.sleep(2)
+    with open(self.cookie_file,'w') as f:
+      json.dump(self.session.cookies.get_dict(),f)
+    print(f"cookies已经保存到本地{self.cookie_file}")
 
 
   def check_login_status(self):
@@ -85,13 +98,6 @@ class BilibiliLoginManager:
       print("登陆失败或者凭证过期")
       return False
 
-  def get_headers(self):
-    return {
-      "User-Agent": "Mozilla/5.0",
-      "Referer": "https://www.bilibili.com/",
-      "Cookies": self.session.cookies
-    }
+  def get_cookies(self):
+    return self.session.cookies.get_dict()
   
-log = BilibiliLoginManager()
-log.set_qrcode_cookies()
-log.check_login_status()

@@ -3,7 +3,8 @@ import re
 import json
 import os
 from bilibili_stream import BilibiliStream
-from utils import fix_audio_duration
+from utils import fix_audio_duration,get_Bvid,get_cid
+from auth import BilibiliLoginManager
 AUDIO_PATH = "Audio"
 VIDEO_PATH = "Video"
 VIDEOSHOT_PATH = "Videoshot"
@@ -72,11 +73,7 @@ def download_videoshot(URL):
   :param URL: 含Bvid的B站视频链接
   """
   
-  Bvid_match = re.search(r'(BV[a-zA-z0-9]+)',URL)
-  if Bvid_match:
-    Bvid = Bvid_match.group(1)
-  else:
-    raise ValueError("URL不含Bvid")
+  Bvid = get_Bvid(URL)
   
   Session.headers.update(HEADERS)
   response = Session.get(f"https://api.bilibili.com/x/player/videoshot?bvid={Bvid}")
@@ -105,14 +102,48 @@ def download_subtitle(URL):
   
   :param URL: B站视频的链接
   """
-  
+  os.makedirs("Subtitles",exist_ok=True)
+  Bvid = get_Bvid(URL)
+  cid_list = get_cid(URL)
+  cid = cid_list[0]['cid']
+  URL = f"https://api.bilibili.com/x/player/v2?bvid={Bvid}&cid={cid}"
+  response = Session.get(URL)
+  data = response.json()
+  if data['code'] == 0:
+    print("请求播放器数据成功")
+    subtitles = data['data']['subtitle']['subtitles'] #subtitles是数组
+    for subtitle in subtitles:
+      print(subtitle.get('subtitle_url',''))
+      if 'zh' in subtitle['lan']:
+        subtitle_url = subtitle.get('subtitle_url','')
+        if not subtitle_url:
+          continue
+        full_url = "https:" + subtitle_url
+        response = Session.get(full_url)
+        data = response.json()['body']
+        processed_subtitle = []
+        for item in data:
+          processed_subtitle.append(item['content'])
+        filename = f"{subtitle['lan']}.txt"
+        dirpath = os.path.join("Subtitles",Bvid)
+        os.makedirs(dirpath,exist_ok=True)
+        filepath = os.path.join(dirpath,filename)
+        full_content = '\n'.join(processed_subtitle)
+        with open(filepath,'w',encoding='utf-8') as f:
+          f.write(full_content)
+        print(f"已保存{Bvid}的{subtitle['lan']}字幕")
+  else:
+    raise requests.ConnectionError("请求字幕失败")
+
 #https://www.bilibili.com/video/BV1d1ktBCEaJ/?spm_id_from=333.1007.tianma.1-3-3.click&vd_source=ede24bcc29b6f6c3df591e75217018c8
 if __name__ == "__main__":
   
   os.makedirs('Audio',exist_ok=True)
-  while True:
-    URL = input("URL:")
-    download_audio(get_playinfo_data(URL))
+  log = BilibiliLoginManager()
+  log.check_login_status()
+  Session.headers.update(HEADERS)
+  Session.cookies.update(log.get_cookies())
+  download_subtitle("https://www.bilibili.com/video/BV1crBzBGEoR/?spm_id_from=333.1007.tianma.1-1-1.click&vd_source=ede24bcc29b6f6c3df591e75217018c8")
   #playinfo_data = get_playinfo_data(URL)
   #baseUrl = playinfo_data["dash"]["audio"][0]["baseUrl"]
   #index_range = playinfo_data["dash"]["audio"][0]["SegmentBase"]["indexRange"]
