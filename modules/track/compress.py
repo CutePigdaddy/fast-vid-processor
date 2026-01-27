@@ -2,7 +2,7 @@ import ffmpeg
 import os
 from typing import Optional
 
-def compress(input_path: str, output_path: Optional[str] = None) -> Optional[str]:
+def compresser(input_path: str, output_path: Optional[str] = None) -> Optional[str]:
     """
     将音频文件压缩并归一化为统一的发布标准。
 
