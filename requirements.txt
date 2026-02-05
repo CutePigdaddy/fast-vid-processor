@@ -23,3 +23,6 @@ ffmpeg-python
 static_ffmpeg==3.0
 requests==2.32.5
 qrcode[pil]
+
+#celery tasks
+celery[redis]
