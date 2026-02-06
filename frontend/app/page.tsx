@@ -10,7 +10,10 @@ import {
   AlertCircle, 
   Menu,
   X,
-  Plus
+  Plus,
+  Trash2,
+  Edit2,
+  Check
 } from 'lucide-react';
 
 // --- 配置区域 ---
@@ -103,6 +106,10 @@ export default function VideoASRApp() {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // null 代表在"添加视频"页面
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   
+  // 重命名相关状态
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+
   // 用于轮询的 interval ref
   const pollIntervals = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
@@ -155,6 +162,48 @@ export default function VideoASRApp() {
       ));
       showToast('上传失败，请检查后端服务', 'error');
     }
+  };
+
+  // 删除任务
+  const deleteTask = (e: React.MouseEvent, taskId: string) => {
+    e.stopPropagation(); // 防止触发 active 切换
+    
+    // 直接删除，不使用 confirm 弹窗
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+    
+    // 停止轮询
+    stopPolling(taskId);
+
+    // 如果删除的是当前选中的任务，回到首页
+    if (activeTaskId === taskId) {
+      setActiveTaskId(null);
+    }
+    showToast('记录已删除', 'success');
+  };
+
+  // 开始编辑
+  const startEditing = (e: React.MouseEvent, task: VideoTask) => {
+    e.stopPropagation();
+    setEditingTaskId(task.id);
+    setEditingName(task.name);
+  };
+
+  // 保存重命名
+  const saveRename = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!editingName.trim()) return;
+
+    setTasks(prev => prev.map(t => 
+      t.id === editingTaskId ? { ...t, name: editingName } : t
+    ));
+    setEditingTaskId(null);
+    showToast('重命名成功', 'success');
+  };
+
+  // 取消编辑
+  const cancelEditing = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setEditingTaskId(null);
   };
 
   // 轮询逻辑
@@ -246,23 +295,82 @@ export default function VideoASRApp() {
           </div>
           <ul className="space-y-1">
             {tasks.map(task => (
-              <li key={task.id}>
-                <button
-                  onClick={() => setActiveTaskId(task.id)}
-                  className={`w-full flex items-center px-6 py-3 text-sm transition-all border-l-4 ${
-                    activeTaskId === task.id
-                      ? 'border-blue-500 bg-slate-800 text-white'
-                      : 'border-transparent hover:bg-slate-800 hover:text-white'
-                  }`}
-                >
-                  <FileVideo className="w-4 h-4 mr-3 opacity-70" />
-                  <span className="truncate flex-1 text-left">{task.name}</span>
-                  
-                  {/* 状态小图标 */}
-                  {task.status === 'success' && <CheckCircle2 className="w-3 h-3 text-green-400" />}
-                  {task.status === 'processing' && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
-                  {task.status === 'error' && <AlertCircle className="w-3 h-3 text-red-400" />}
-                </button>
+              <li key={task.id} className="group relative">
+                {editingTaskId === task.id ? (
+                  // 编辑模式
+                  <div className="w-full flex items-center px-3 py-2 bg-slate-800 border-l-4 border-blue-500">
+                    <input 
+                      aria-label="编辑视频名称"
+                      value={editingName} 
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => {
+                        if(e.key === 'Enter') saveRename();
+                        if(e.key === 'Escape') cancelEditing();
+                      }}
+                      className="bg-slate-700 text-white text-sm rounded px-2 py-1 flex-1 min-w-0 outline-none border border-slate-600 focus:border-blue-500" 
+                      autoFocus 
+                    />
+                    <div className="flex items-center ml-2 space-x-1">
+                      <button 
+                        onClick={saveRename} 
+                        className="p-1 hover:text-green-400 text-slate-400"
+                        title="确认修改"
+                        aria-label="确认修改"
+                      >
+                        <Check size={16}/>
+                      </button>
+                      <button 
+                        onClick={cancelEditing} 
+                        className="p-1 hover:text-gray-200 text-slate-500"
+                        title="取消修改"
+                        aria-label="取消修改"
+                      >
+                        <X size={16}/>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  // 正常模式
+                  <>
+                    <button
+                      onClick={() => setActiveTaskId(task.id)}
+                      className={`w-full flex items-center px-6 py-3 text-sm transition-all border-l-4 pr-16 ${
+                        activeTaskId === task.id
+                          ? 'border-blue-500 bg-slate-800 text-white'
+                          : 'border-transparent hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <FileVideo className="w-4 h-4 mr-3 opacity-70 shrink-0" />
+                      <span className="truncate flex-1 text-left">{task.name}</span>
+                      
+                      {/* 状态小图标 (常驻) */}
+                      <div className="ml-2 group-hover:opacity-0 transition-opacity">
+                        {task.status === 'success' && <CheckCircle2 className="w-3 h-3 text-green-400" />}
+                        {task.status === 'processing' && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
+                        {task.status === 'error' && <AlertCircle className="w-3 h-3 text-red-400" />}
+                      </div>
+                    </button>
+
+                    {/* 操作按钮 (Hover时显示) */}
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900/90 shadow-lg rounded px-1.5 py-1">
+                      <button 
+                        onClick={(e) => startEditing(e, task)} 
+                        className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-800 rounded transition-colors"
+                        title="重命名"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        onClick={(e) => deleteTask(e, task.id)} 
+                        className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
+                        title="删除"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </>
+                )}
               </li>
             ))}
             {tasks.length === 0 && (
@@ -359,9 +467,12 @@ export default function VideoASRApp() {
                         <span className="text-sm font-bold text-blue-600">{activeTask.progress}%</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                        {/* FIX: 使用 CSS 变量来解决 'no-inline-styles' 警告。
+                          通过设置 '--progress-width' 变量，让 Tailwind 的 w-[var(...)] 类来接管宽度控制。
+                        */}
                         <div 
-                          className="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out relative" 
-                          style={{ width: `${activeTask.progress}%` }}
+                          className="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out relative w-[var(--progress-width)]" 
+                          style={{ '--progress-width': `${activeTask.progress}%` } as React.CSSProperties}
                         >
                            <div className="absolute top-0 left-0 bottom-0 right-0 bg-white/30 animate-pulse"></div>
                         </div>
