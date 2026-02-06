@@ -7,6 +7,7 @@ class Config:
 
     # 路径配置
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    DEFAULT_INPUT_SAVE_DIR = os.path.join(BASE_DIR, "input")
     DEFAULT_OUTPUT_DIR = os.path.join(BASE_DIR, "output")
     
     # 其他全局变量

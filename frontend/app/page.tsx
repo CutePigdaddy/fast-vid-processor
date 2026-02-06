@@ -21,9 +21,9 @@ import {
 
 // 如果为 true，使用前端模拟数据，方便你直接预览 UI 效果
 // 如果为 false，将尝试连接你定义的 Python 后端 (localhost:8000)
-const MOCK_MODE = true; 
+const MOCK_MODE = false; 
 
-const API_BASE_URL = 'http://localhost:8000/api/v1';
+const API_BASE_URL = 'http://localhost:8000';
 const LOCAL_STORAGE_KEY = 'video_asr_tasks_v1';
 
 // --- 类型定义 ---
@@ -60,7 +60,8 @@ const apiService = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await fetch(`${API_BASE_URL}/tasks/upload`, {
+    // 对应 api.py 中的 @app.post("/tasks/{task_type}")
+    const res = await fetch(`${API_BASE_URL}/tasks/extract_audio`, {
       method: 'POST',
       body: formData,
     });
@@ -95,9 +96,26 @@ const apiService = {
       });
     }
 
-    const res = await fetch(`${API_BASE_URL}/tasks/${taskId}`);
+    // 对应 api.py 中的 @app.get("/tasks/{task_id}/status")
+    const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/status`);
     if (!res.ok) throw new Error('Status check failed');
-    return res.json();
+    
+    const data = await res.json();
+    
+    // 关键修正：Celery 返回的是大写（SUCCESS/PENDING/FAILURE），前端需要小写映射
+    const statusMap: Record<string, VideoTask['status']> = {
+      'PENDING': 'pending',
+      'STARTED': 'processing',
+      'SUCCESS': 'success',
+      'FAILURE': 'error',
+      'RETRY': 'processing'
+    };
+
+    return {
+      status: statusMap[data.status] || 'pending',
+      progress: data.status === 'SUCCESS' ? 100 : (data.status === 'PENDING' ? 0 : 50),
+      result: data.result || null
+    };
   }
 };
 
@@ -520,9 +538,7 @@ export default function VideoASRApp() {
                         <span className="text-sm font-bold text-blue-600">{activeTask.progress}%</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                        {/* FIX: 使用 CSS 变量来解决 'no-inline-styles' 警告。
-                          通过设置 '--progress-width' 变量，让 Tailwind 的 w-[var(...)] 类来接管宽度控制。
-                        */}
+                        {/* 使用 CSS 变量动态控制进度条宽度 */}
                         <div 
                           className="bg-blue-600 h-2.5 rounded-full transition-all duration-500 ease-out relative w-[var(--progress-width)]" 
                           style={{ '--progress-width': `${activeTask.progress}%` } as React.CSSProperties}
@@ -585,7 +601,24 @@ export default function VideoASRApp() {
                     </div>
                     
                     {activeTask.status === 'success' && (
-                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end space-x-3">
+                            <button 
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = `${API_BASE_URL}/download/${activeTask.id}`;
+                                link.download = `audio_${activeTask.name.replace(/\.[^.]+$/, '')}.mp3`;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                showToast('开始下载音频文件', 'success');
+                              }}
+                              className="text-sm text-green-600 hover:text-green-800 font-medium px-4 py-2 hover:bg-green-50 rounded-lg transition-colors flex items-center"
+                            >
+                              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                              下载音频
+                            </button>
                             <button className="text-sm text-blue-600 hover:text-blue-800 font-medium px-4 py-2 hover:bg-blue-50 rounded-lg transition-colors">
                                 导出文本
                             </button>

@@ -46,7 +46,15 @@ class Separator:
         """
         name, audio_dir, _ = self._prepare_paths(input_path, output_dir)
         
-        probe = ffmpeg.probe(input_path)
+        # 检查输入文件是否存在
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(f"Input file does not exist: {input_path}")
+        
+        try:
+            probe = ffmpeg.probe(input_path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to probe file {input_path}: {str(e)}") from e
+            
         audio_streams = [s for s in probe['streams'] if s['codec_type'] == 'audio']
         
         extracted_files = []

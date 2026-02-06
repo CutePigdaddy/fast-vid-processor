@@ -26,3 +26,4 @@ qrcode[pil]
 
 #celery tasks
 celery[redis]
+fastapi
