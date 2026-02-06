@@ -1,10 +1,13 @@
 from fastapi import FastAPI, UploadFile, File
+from celery import uuid, Task
 from celery.result import AsyncResult
-from tasks import extract_audio_task
+from tasks import extract_audio_task #type: ignore
 from utils import save_upload_file
 from config import settings
 import os
 app = FastAPI()
+
+extract_audio_task: Task = extract_audio_task 
 
 @app.post("/tasks/{task_type}")
 def create_task(task_type: str, file: UploadFile=File(...)):
@@ -13,18 +16,22 @@ def create_task(task_type: str, file: UploadFile=File(...)):
 
   :param task_type: 任务的类型,包含 "extract_audio"。
   """
-  if task_type=="extract_audio":
-    task_instance: AsyncResult = extract_audio_task.delay() #type: ignore
-  else:
-    raise Exception("任务类型错误")
+  #生成taskid
+  task_id = uuid()
+
   #保存文件
-  task_id = task_instance.id
   _,ext = os.path.splitext(file.filename or '')
   base_dir = settings.DEFAULT_INPUT_SAVE_DIR
   save_path = os.path.join(base_dir,f"{task_id}.{ext}")
   save_upload_file(file,save_path)
+
+  if task_type=="extract_audio":
+    extract_audio_task.apply_async(args=[save_path], task_id=task_id) 
+  else:
+    raise Exception("任务类型错误")
+  
   return {
-    "status": task_instance.ready(),
+    "status": "pending",
     "task_id": task_id,
     "message": f"task:{task_id} created"
   }
