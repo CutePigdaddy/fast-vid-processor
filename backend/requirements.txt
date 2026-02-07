@@ -8,15 +8,15 @@ pydub
 audio-separator
 
 # PyTorch (CUDA 12.x for cu128)
---extra-index-url https://download.pytorch.org/whl/cu128
-torch
-torchvision
-torchaudio
+# --extra-index-url https://download.pytorch.org/whl/cu128
+# torch
+# torchvision
+# torchaudio
 
 # OCR (Optical Character Recognition)
---extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
-paddlepaddle==3.2.0
-paddleocr
+# --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cpu/
+# paddlepaddle==3.2.0
+# paddleocr
 
 # Video & Online Streaming
 ffmpeg-python
@@ -26,4 +26,6 @@ qrcode[pil]
 
 #celery tasks
 celery[redis]
+python-multipart
 fastapi
+uvicorn
