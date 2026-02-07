@@ -1,0 +1,97 @@
+# AI转录文本分析系统配置
+
+# AI服务配置
+ai_service:
+  provider: "zhipu"  # 可选: openai, zhipu
+  api_key: "${ZHIPU_API_KEY}"  # 从环境变量读取
+  
+  # OpenAI配置（如果provider=openai）
+  openai:
+    model: "gpt-3.5-turbo"
+    base_url: "https://api.openai.com/v1"
+    temperature: 0.7
+    max_tokens: 2000
+  
+  # 智谱AI配置（如果provider=zhipu）
+  zhipu:
+    model: "glm-4.7"  # 可选: glm-4, glm-4v, glm-3-turbo
+    api_key: "${ZHIPU_API_KEY}"
+    temperature: 0.7
+    max_tokens: 6000
+    top_p: 0.7
+    incremental: false  # 是否流式输出
+
+# 总结配置
+summarization:
+  output_dir: "./summaries"
+  output_format: "markdown"
+  language: "zh"
+
+# 提示词模板
+prompt_templates:
+  timestamp_summary: |
+    你是一个专业的文本分析助手。请分析以下包含时间戳的转录文本内容：
+
+    {text_content}
+
+    重要说明：
+    1. 这是带有时间戳的转录文本，格式为：[开始时间 - 结束时间] 文本内容
+    2. 请忽略时间戳信息，专注于文本内容的分析和总结
+    3. 如果文本中有"## 完整文本"部分，请优先使用该部分内容
+    4. 如果有多人对话，请标注说话人
+
+    请按照以下结构组织分析和总结：
+    1. 内容概述（用1-2句话概括整体内容）
+    2. 时间线分析（按时间顺序梳理主要事件或观点）
+    3. 核心观点提取（提取3-5个最重要的观点）
+    4. 关键洞见（深入分析2-3个有价值的洞察）
+    5. 总结与建议
+
+    语言：{language}
+    
+  detailed_analysis: |
+    你是一个专业的文本分析助手。请对以下转录文本进行深入分析：
+
+    {text_content}
+
+    分析要求：
+    1. 忽略时间戳信息，专注于文本内容
+    2. 分析内容的结构和逻辑关系
+    3. 提取关键论点并进行逻辑梳理
+    4. 识别对话中的主要参与者和他们的观点
+    5. 评估内容的完整性和连贯性
+
+    分析维度：
+    1. 内容结构分析（开头、发展、结尾）
+    2. 主要观点与论据
+    3. 论证逻辑与说服力
+    4. 亮点与特色
+    5. 改进建议（如果有）
+
+    语言：{language}
+    
+  quick_summary: |
+    请用简洁的语言总结以下转录文本：
+
+    {text_content}
+
+    要求：
+    1. 忽略时间戳信息
+    2. 字数在300字以内
+    3. 突出重点内容
+    4. 语言：{language}
+    
+  conversation_analysis: |
+    你是一个专业的对话分析专家。请分析以下对话转录文本：
+
+    {text_content}
+
+    请按照以下步骤分析：
+    1. 识别对话参与者及其角色
+    2. 分析对话结构和流程
+    3. 提取每个参与者的主要观点和立场
+    4. 分析对话中的共识和分歧点
+    5. 评估对话效果和改进建议
+
+    输出格式：结构化报告
+    语言：{language}
