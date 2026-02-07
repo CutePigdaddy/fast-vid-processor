@@ -29,3 +29,4 @@ celery[redis]
 python-multipart
 fastapi
 uvicorn
+aiofiles

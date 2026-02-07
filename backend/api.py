@@ -1,5 +1,6 @@
 import logging
 import os
+import aiofiles
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -40,14 +41,14 @@ async def create_task(task_type: str, file: UploadFile = File(...)):
     logger.info(f"[{task_id}] Saving to: {save_path}")
 
     # 3. 异步写入文件 (替代原来的 utils.save_upload_file)
-    # 对于挂载的 Docker 卷，async 写入更不容易死锁
-    with open(save_path, "wb") as buffer:
+    # 使用 aiofiles 进行真正的异步写入，避免阻塞事件循环
+    async with aiofiles.open(save_path, "wb") as buffer:
         while True:
             # 每次读取 1MB
             chunk = await file.read(1024 * 1024)
             if not chunk:
                 break
-            buffer.write(chunk)
+            await buffer.write(chunk)
             
     logger.info(f"[{task_id}] File saved successfully.")
 
