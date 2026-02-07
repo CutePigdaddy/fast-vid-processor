@@ -82,7 +82,7 @@ def download_file(task_id: str):
   if not task_result:
     return {"error": "No result data"}
   
-  file_path = task_result['output_file']
+  file_path = task_result['output_file'][0]
   
   if not os.path.exists(file_path):
     return {"error": f"File not found at: {file_path}"}

@@ -2,8 +2,8 @@ import os
 
 class Config:
     # Celery 配置
-    CELERY_BROKER_URL = "redis://localhost:6379/0"
-    CELERY_RESULT_BACKEND = "redis://localhost:6379/1"
+    CELERY_BROKER_URL = "redis://:1234567890@47.122.123.42:6379/0"
+    CELERY_RESULT_BACKEND = "redis://:1234567890@47.122.123.42:6379/1"
 
     # 路径配置
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
