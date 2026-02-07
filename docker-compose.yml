@@ -17,16 +17,16 @@ services:
     # 使用 python -m uvicorn 启动，确保能找到模块
     command: python -m uvicorn api:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "8000:8000"
+      - "8080:8000"
     volumes:
       - ./backend:/app          # 代码挂载 (热重载)
-      - ./data:/app/data        # 【重要】数据挂载：宿主机 ./data <-> 容器 /app/data
+      - ./data:/data            # 【重要修改】挂载到根目录 /data，避免写入文件时触发 /app 的热重载
     environment:
       # 告诉 config.py 使用 Docker 内的 Redis 地址
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
       # 告诉 config.py 数据存在哪
-      - DATA_DIR=/app/data
+      - DATA_DIR=/data
     depends_on:
       - redis
 
@@ -38,12 +38,12 @@ services:
     command: python -m celery -A tasks worker --loglevel=info
     volumes:
       - ./backend:/app          # 代码挂载
-      - ./data:/app/data        # 【重要】必须与 backend 挂载一致，才能读取上传的文件
+      - ./data:/data            # 【重要修改】必须与 backend 挂载一致（改为 /data）
     environment:
       # 与 backend 保持一致
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/1
-      - DATA_DIR=/app/data
+      - DATA_DIR=/data
     depends_on:
       - redis
       - backend

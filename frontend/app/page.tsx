@@ -20,10 +20,10 @@ import {
 // --- 配置区域 ---
 
 // 如果为 true，使用前端模拟数据，方便你直接预览 UI 效果
-// 如果为 false，将尝试连接你定义的 Python 后端 (localhost:8000)
+// 如果为 false，将尝试连接你定义的 Python 后端 (localhost:8080)
 const MOCK_MODE = false; 
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = 'http://localhost:8080';
 const LOCAL_STORAGE_KEY = 'video_asr_tasks_v1';
 
 // --- 类型定义 ---
@@ -47,27 +47,55 @@ interface VideoTask {
 // --- API 服务层 (对应你的后端设计) ---
 
 const apiService = {
-  // 1. 上传视频
-  uploadVideo: async (file: File): Promise<{ task_id: string }> => {
+  // 1. 上传视频 (修改：增加 onProgress 回调参数)
+  uploadVideo: async (file: File, onProgress?: (percent: number) => void): Promise<{ task_id: string }> => {
     if (MOCK_MODE) {
       return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({ task_id: `mock-task-${Date.now()}` });
-        }, 1000); // 模拟网络延迟
+        // 模拟上传进度
+        let p = 0;
+        const timer = setInterval(() => {
+            p += 10;
+            if (onProgress) onProgress(p);
+            if (p >= 100) {
+                clearInterval(timer);
+                resolve({ task_id: `mock-task-${Date.now()}` });
+            }
+        }, 100);
       });
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
+    // 使用 XMLHttpRequest 替代 fetch 以支持上传进度
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE_URL}/tasks/extract_audio`);
 
-    // 对应 api.py 中的 @app.post("/tasks/{task_type}")
-    const res = await fetch(`${API_BASE_URL}/tasks/extract_audio`, {
-      method: 'POST',
-      body: formData,
+        // 监听上传进度事件
+        xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable && onProgress) {
+                const percent = Math.round((event.loaded / event.total) * 100);
+                onProgress(percent);
+            }
+        };
+
+        xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    resolve(response);
+                } catch (e) {
+                    reject(new Error('Invalid JSON response'));
+                }
+            } else {
+                reject(new Error(`Upload failed: ${xhr.statusText}`));
+            }
+        };
+
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+
+        const formData = new FormData();
+        formData.append('file', file);
+        xhr.send(formData);
     });
-    
-    if (!res.ok) throw new Error('Upload failed');
-    return res.json();
   },
 
   // 2. 查询状态
@@ -249,7 +277,7 @@ export default function VideoASRApp() {
       id: tempId,
       name: file.name,
       file: file,
-      previewUrl: URL.createObjectURL(file),
+      previewUrl: URL.createObjectURL(file), // 预览本地视频
       status: 'uploading',
       progress: 0,
       result: null,
@@ -260,8 +288,13 @@ export default function VideoASRApp() {
     setActiveTaskId(newTask.id); // 跳转到新任务页面
 
     try {
-      // 2. 调用API上传
-      const { task_id } = await apiService.uploadVideo(file);
+      // 2. 调用API上传 (传入进度回调函数)
+      const { task_id } = await apiService.uploadVideo(file, (percent) => {
+         // 实时更新当前任务的进度
+         setTasks(prev => prev.map(t => 
+            t.id === tempId ? { ...t, progress: percent } : t
+         ));
+      });
       
       // 3. 更新任务ID并开始轮询
       setTasks(prev => prev.map(t => 
