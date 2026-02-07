@@ -22,11 +22,16 @@ class Config:
     
     # --- 其他配置 ---
     ALLOWED_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov'}
-
+    TRACK_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "track")
+    AUDIO_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "audio")
+    TEXT_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "text")
     # 自动创建必要目录（防止报错）
     def ensure_dirs(self):
         os.makedirs(self.DEFAULT_INPUT_SAVE_DIR, exist_ok=True)
         os.makedirs(self.DEFAULT_OUTPUT_DIR, exist_ok=True)
+        os.makedirs(self.TRACK_DIR, exist_ok=True)
+        os.makedirs(self.AUDIO_DIR, exist_ok=True)
+        os.makedirs(self.TEXT_DIR, exist_ok=True)
 
 # 导出实例
 settings = Config()
