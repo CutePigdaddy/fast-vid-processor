@@ -2,38 +2,55 @@ import os
 
 class Config:
     # --- Redis / Celery 配置 ---
-    # 优先从环境变量获取，如果没有(比如本地运行)，则默认为 localhost
-    # 在 Docker Compose 中，我们会注入 'redis://redis:6379/0'
     CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
     CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
 
     # --- 路径配置 ---
-    # 基础目录
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     
-    # 数据根目录：优先使用环境变量 DATA_DIR (Docker 中设为 /data)，否则在本地项目下生成 data 文件夹
+    # 数据根目录：Docker 中为 /data，本地为 backend/data
     DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 
-    # 输入(上传)文件存放处
-    DEFAULT_INPUT_SAVE_DIR = os.path.join(DATA_DIR, "uploads")
-    
-    # 输出(处理结果)文件存放处
-    DEFAULT_OUTPUT_DIR = os.path.join(DATA_DIR, "processed")
-    
     # --- 其他配置 ---
     ALLOWED_EXTENSIONS = {'.mp4', '.mkv', '.avi', '.mov'}
-    TRACK_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "track")
-    AUDIO_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "audio")
-    TEXT_DIR = os.path.join(DEFAULT_OUTPUT_DIR, "text")
-    # 自动创建必要目录（防止报错）
-    def ensure_dirs(self):
-        os.makedirs(self.DEFAULT_INPUT_SAVE_DIR, exist_ok=True)
-        os.makedirs(self.DEFAULT_OUTPUT_DIR, exist_ok=True)
-        os.makedirs(self.TRACK_DIR, exist_ok=True)
-        os.makedirs(self.AUDIO_DIR, exist_ok=True)
-        os.makedirs(self.TEXT_DIR, exist_ok=True)
+
+    # ===== Hash-based 路径工具方法 =====
+    
+    @staticmethod
+    def get_hash_dir(data_dir: str, file_hash: str) -> str:
+        """获取某个 hash 对应的根目录: data/<HASH>/"""
+        return os.path.join(data_dir, file_hash)
+    
+    @staticmethod
+    def get_source_dir(data_dir: str, file_hash: str) -> str:
+        """源文件目录: data/<HASH>/source/"""
+        return os.path.join(data_dir, file_hash, "source")
+    
+    @staticmethod
+    def get_track_dir(data_dir: str, file_hash: str) -> str:
+        """音轨目录: data/<HASH>/track/"""
+        return os.path.join(data_dir, file_hash, "track")
+    
+    @staticmethod
+    def get_vocal_dir(data_dir: str, file_hash: str) -> str:
+        """人声目录: data/<HASH>/vocal/"""
+        return os.path.join(data_dir, file_hash, "vocal")
+    
+    @staticmethod
+    def get_text_dir(data_dir: str, file_hash: str) -> str:
+        """文本目录: data/<HASH>/text/"""
+        return os.path.join(data_dir, file_hash, "text")
+    
+    def ensure_hash_dirs(self, file_hash: str):
+        """为某个 hash 创建完整的目录结构"""
+        for dir_fn in [self.get_source_dir, self.get_track_dir, self.get_vocal_dir, self.get_text_dir]:
+            os.makedirs(dir_fn(self.DATA_DIR, file_hash), exist_ok=True)
+
+    def ensure_data_dir(self):
+        """确保数据根目录存在"""
+        os.makedirs(self.DATA_DIR, exist_ok=True)
 
 # 导出实例
 settings = Config()
-# 初始化时确保目录存在
-settings.ensure_dirs()
+# 初始化时确保数据根目录存在
+settings.ensure_data_dir()

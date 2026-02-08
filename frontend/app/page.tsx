@@ -19,12 +19,10 @@ import {
 
 // --- 配置区域 ---
 
-// 如果为 true，使用前端模拟数据，方便你直接预览 UI 效果
-// 如果为 false，将尝试连接你定义的 Python 后端 (localhost:8080)
 const MOCK_MODE = false; 
 
-const API_BASE_URL = 'http://localhost:8080';
-const LOCAL_STORAGE_KEY = 'video_asr_tasks_v1';
+const API_BASE_URL = 'http://localhost:8000';
+const LOCAL_STORAGE_KEY = 'video_asr_tasks_v2';
 
 // --- 类型定义 ---
 
@@ -34,116 +32,137 @@ interface TaskResult {
 }
 
 interface VideoTask {
-  id: string; // 任务ID
-  name: string; // 文件名
-  file: File | null; // 原始文件对象
-  previewUrl: string; // 本地预览地址
-  status: 'uploading' | 'pending' | 'processing' | 'success' | 'error';
-  progress: number; // 0-100
+  id: string;           // 内部临时 ID（上传前）或 file_hash（上传后）
+  fileHash: string;     // 文件的 SHA-256 哈希值（核心标识）
+  name: string;         // 显示名称（原始文件名）
+  file: File | null;
+  previewUrl: string;
+  status: 'hashing' | 'uploading' | 'pending' | 'processing' | 'success' | 'error';
+  progress: number;     // 0-100
   result: TaskResult | null;
   createdAt: number;
 }
 
-// --- API 服务层 (对应你的后端设计) ---
+// --- SHA-256 哈希计算 ---
+
+async function computeFileHash(file: File): Promise<string> {
+  const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB 分片读取
+  const fileSize = file.size;
+  let offset = 0;
+
+  // 使用 SubtleCrypto 流式计算
+  // Web Crypto API 不支持增量哈希，需要读取全部内容
+  // 对于大文件，分片读取到一个 ArrayBuffer
+  const chunks: ArrayBuffer[] = [];
+
+  while (offset < fileSize) {
+    const slice = file.slice(offset, offset + CHUNK_SIZE);
+    const buffer = await slice.arrayBuffer();
+    chunks.push(buffer);
+    offset += CHUNK_SIZE;
+  }
+
+  // 合并所有 chunks
+  const totalLength = chunks.reduce((acc, c) => acc + c.byteLength, 0);
+  const combined = new Uint8Array(totalLength);
+  let pos = 0;
+  for (const chunk of chunks) {
+    combined.set(new Uint8Array(chunk), pos);
+    pos += chunk.byteLength;
+  }
+
+  const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// --- API 服务层 ---
 
 const apiService = {
-  // 1. 上传视频 (修改：增加 onProgress 回调参数)
-  uploadVideo: async (file: File, onProgress?: (percent: number) => void): Promise<{ task_id: string }> => {
+  // 上传视频（文件名为 hash + 原始扩展名）
+  uploadVideo: async (file: File, fileHash: string, onProgress?: (percent: number) => void): Promise<{ status: string; file_hash: string; task_id?: string; message?: string }> => {
     if (MOCK_MODE) {
       return new Promise((resolve) => {
-        // 模拟上传进度
         let p = 0;
         const timer = setInterval(() => {
-            p += 10;
-            if (onProgress) onProgress(p);
-            if (p >= 100) {
-                clearInterval(timer);
-                resolve({ task_id: `mock-task-${Date.now()}` });
-            }
+          p += 10;
+          if (onProgress) onProgress(p);
+          if (p >= 100) {
+            clearInterval(timer);
+            resolve({ status: 'processing', file_hash: fileHash, task_id: `mock-task-${Date.now()}` });
+          }
         }, 100);
       });
     }
 
-    // 使用 XMLHttpRequest 替代 fetch 以支持上传进度
+    // 获取原始扩展名
+    const ext = file.name.substring(file.name.lastIndexOf('.'));
+    // 创建以 hash 命名的新 File
+    const renamedFile = new File([file], `${fileHash}${ext}`, { type: file.type });
+
     return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_BASE_URL}/tasks/extract_audio`);
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE_URL}/tasks/text`);
 
-        // 监听上传进度事件
-        xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable && onProgress) {
-                const percent = Math.round((event.loaded / event.total) * 100);
-                onProgress(percent);
-            }
-        };
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
 
-        xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                try {
-                    const response = JSON.parse(xhr.responseText);
-                    resolve(response);
-                } catch (e) {
-                    reject(new Error('Invalid JSON response'));
-                }
-            } else {
-                reject(new Error(`Upload failed: ${xhr.statusText}`));
-            }
-        };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch (e) {
+            reject(new Error('Invalid JSON response'));
+          }
+        } else {
+          reject(new Error(`Upload failed: ${xhr.statusText}`));
+        }
+      };
 
-        xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.onerror = () => reject(new Error('Network error during upload'));
 
-        const formData = new FormData();
-        formData.append('file', file);
-        xhr.send(formData);
+      const formData = new FormData();
+      formData.append('file', renamedFile);
+      xhr.send(formData);
     });
   },
 
-  // 2. 查询状态
-  checkStatus: async (taskId: string): Promise<{ status: string; progress?: number; result?: any }> => {
+  // 通过 file_hash 查询状态
+  checkStatus: async (fileHash: string): Promise<{ status: string; celery_status?: string; meta?: any; files?: any }> => {
     if (MOCK_MODE) {
-      // 模拟后端处理逻辑：每次请求增加进度
       return new Promise((resolve) => {
-        const storedProgress = (window as any)[`progress_${taskId}`] || 0;
+        const storedProgress = (window as any)[`progress_${fileHash}`] || 0;
         const newProgress = Math.min(storedProgress + 20, 100);
-        (window as any)[`progress_${taskId}`] = newProgress;
-
-        let status = 'processing';
-        let result = null;
+        (window as any)[`progress_${fileHash}`] = newProgress;
 
         if (newProgress >= 100) {
-          status = 'success';
-          result = {
-            text_content: "【ASR识别结果】\n这是一个模拟的视频识别文本。\nDocker容器运行正常，Celery队列已处理完毕。\n识别内容：今天天气不错，我们在测试React前端与Python后端的通讯。",
-            duration: 45
-          };
+          resolve({ status: 'success', files: { text: true, track: true, vocal: true } });
+        } else {
+          resolve({ status: 'progress', celery_status: 'STARTED' });
         }
-
-        setTimeout(() => {
-          resolve({ status, progress: newProgress, result });
-        }, 500);
       });
     }
 
-    // 对应 api.py 中的 @app.get("/tasks/{task_id}/status")
-    const res = await fetch(`${API_BASE_URL}/tasks/${taskId}/status`);
+    const res = await fetch(`${API_BASE_URL}/files/${fileHash}/status`);
     if (!res.ok) throw new Error('Status check failed');
-    
-    const data = await res.json();
-    
-    // 关键修正：Celery 返回的是大写（SUCCESS/PENDING/FAILURE），前端需要小写映射
-    const statusMap: Record<string, VideoTask['status']> = {
-      'PENDING': 'pending',
-      'STARTED': 'processing',
-      'SUCCESS': 'success',
-      'FAILURE': 'error',
-      'RETRY': 'processing'
-    };
+    return await res.json();
+  },
 
-    return {
-      status: statusMap[data.status] || 'pending',
-      progress: data.status === 'SUCCESS' ? 100 : (data.status === 'PENDING' ? 0 : 50),
-      result: data.result || null
-    };
+  // 获取文本内容
+  getTextContent: async (fileHash: string): Promise<string> => {
+    if (MOCK_MODE) {
+      return "【模拟识别结果】\n这是一个模拟的视频识别文本。";
+    }
+    
+    const res = await fetch(`${API_BASE_URL}/files/${fileHash}/text`);
+    if (!res.ok) throw new Error('Failed to get text content');
+    const data = await res.json();
+    return data.text_content;
   }
 };
 
@@ -151,54 +170,74 @@ const apiService = {
 
 export default function VideoASRApp() {
   const [tasks, setTasks] = useState<VideoTask[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null); // null 代表在"添加视频"页面
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-  const [isLoaded, setIsLoaded] = useState(false); // 标记是否已完成初始化加载
+  const [isLoaded, setIsLoaded] = useState(false);
   
-  // 重命名相关状态
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
 
-  // 用于轮询的 interval ref
   const pollIntervals = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
-  // 显示提示消息
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
   };
 
-  // --- 轮询逻辑 (使用 useCallback 以便在 Effect 中依赖) ---
-  const stopPolling = useCallback((taskId: string) => {
-    if (pollIntervals.current[taskId]) {
-      clearInterval(pollIntervals.current[taskId]);
-      delete pollIntervals.current[taskId];
+  // --- 轮询逻辑（通过 file_hash 查询） ---
+  const stopPolling = useCallback((fileHash: string) => {
+    if (pollIntervals.current[fileHash]) {
+      clearInterval(pollIntervals.current[fileHash]);
+      delete pollIntervals.current[fileHash];
     }
   }, []);
 
-  const startPolling = useCallback((taskId: string) => {
-    if (pollIntervals.current[taskId]) return;
+  const startPolling = useCallback((fileHash: string) => {
+    if (pollIntervals.current[fileHash]) return;
 
     const interval = setInterval(async () => {
       try {
-        const data = await apiService.checkStatus(taskId);
+        const data = await apiService.checkStatus(fileHash);
         
+        // 映射后端状态
+        let uiStatus: VideoTask['status'];
+        let progress = 50;
+
+        if (data.status === 'success') {
+          uiStatus = 'success';
+          progress = 100;
+        } else if (data.status === 'failed') {
+          uiStatus = 'error';
+          progress = 0;
+        } else {
+          // progress 状态 — 根据 celery_status 细分
+          uiStatus = 'processing';
+          const celeryStatus = data.celery_status || '';
+          if (celeryStatus === 'PENDING') progress = 10;
+          else if (celeryStatus === 'STARTED') progress = 20;
+          else if (celeryStatus === 'separated') progress = 40;
+          else if (celeryStatus === 'distracted') progress = 65;
+          else if (celeryStatus === 'converted') progress = 90;
+          else progress = 30;
+        }
+
         setTasks(prev => prev.map(t => {
-          if (t.id !== taskId) return t;
-
-          // 更新状态
-          const updatedTask = { 
-            ...t, 
-            status: data.status as any,
-            progress: data.progress || t.progress,
-            result: data.result || null
-          };
-
-          // 如果成功或失败，停止轮询
-          if (data.status === 'success' || data.status === 'error') {
-            stopPolling(taskId);
-            if (data.status === 'success') {
-                showToast(`视频 "${t.name}" 处理完成`, 'success');
+          if (t.fileHash !== fileHash) return t;
+          
+          const updatedTask = { ...t, status: uiStatus, progress };
+          
+          if (uiStatus === 'success' || uiStatus === 'error') {
+            stopPolling(fileHash);
+            if (uiStatus === 'success') {
+              // 获取文本内容
+              apiService.getTextContent(fileHash).then(text => {
+                setTasks(prev2 => prev2.map(t2 => 
+                  t2.fileHash === fileHash 
+                    ? { ...t2, result: { text_content: text } } 
+                    : t2
+                ));
+              }).catch(console.error);
+              showToast(`视频 "${t.name}" 处理完成`, 'success');
             }
           }
           return updatedTask;
@@ -206,16 +245,14 @@ export default function VideoASRApp() {
 
       } catch (error) {
         console.error("Polling error", error);
-        // 可以在这里决定是否停止轮询，或者重试几次
       }
-    }, 2000); // 每2秒轮询一次
+    }, 2000);
 
-    pollIntervals.current[taskId] = interval;
-  }, [stopPolling]); // 依赖 stopPolling
+    pollIntervals.current[fileHash] = interval;
+  }, [stopPolling]);
 
   // --- 持久化逻辑 ---
 
-  // 1. 初始化加载
   useEffect(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (saved) {
@@ -229,35 +266,31 @@ export default function VideoASRApp() {
     setIsLoaded(true);
   }, []);
 
-  // 2. 自动保存 (仅在加载完成后，且 tasks 变化时)
   useEffect(() => {
     if (!isLoaded) return;
     
     const tasksToSave = tasks.map(t => ({
       ...t,
-      file: null, // File 对象无法被序列化，且刷新后失效
-      // 如果 file 不存在（刷新后），则清空 previewUrl，因为 blob URL 刷新后也会失效
+      file: null,
       previewUrl: t.file ? t.previewUrl : '' 
     }));
     
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasksToSave));
   }, [tasks, isLoaded]);
 
-  // 3. 恢复轮询 (仅在加载完成时检查一次)
+  // 恢复轮询（用 fileHash 作为 key）
   useEffect(() => {
     if (!isLoaded) return;
     
     tasks.forEach(t => {
-      // 如果任务处于处理中，且当前没有在轮询，则恢复轮询
-      if ((t.status === 'pending' || t.status === 'processing') && !pollIntervals.current[t.id]) {
-        console.log(`Resuming polling for task ${t.id}`);
-        startPolling(t.id);
+      if ((t.status === 'pending' || t.status === 'processing') && t.fileHash && !pollIntervals.current[t.fileHash]) {
+        console.log(`Resuming polling for hash ${t.fileHash}`);
+        startPolling(t.fileHash);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded]); // 只在初始化加载完成时触发一次
+  }, [isLoaded]);
 
-  // 组件卸载时清理所有轮询
   useEffect(() => {
     return () => {
       Object.values(pollIntervals.current).forEach(clearInterval);
@@ -266,62 +299,92 @@ export default function VideoASRApp() {
 
   // --- 交互逻辑 ---
 
-  // 处理文件上传
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // 1. 创建本地预览任务
+    // 1. 创建本地任务（显示"计算文件指纹..."）
     const tempId = `temp-${Date.now()}`;
     const newTask: VideoTask = {
       id: tempId,
+      fileHash: '',
       name: file.name,
       file: file,
-      previewUrl: URL.createObjectURL(file), // 预览本地视频
-      status: 'uploading',
+      previewUrl: URL.createObjectURL(file),
+      status: 'hashing',
       progress: 0,
       result: null,
       createdAt: Date.now(),
     };
 
     setTasks(prev => [newTask, ...prev]);
-    setActiveTaskId(newTask.id); // 跳转到新任务页面
+    setActiveTaskId(newTask.id);
 
     try {
-      // 2. 调用API上传 (传入进度回调函数)
-      const { task_id } = await apiService.uploadVideo(file, (percent) => {
-         // 实时更新当前任务的进度
-         setTasks(prev => prev.map(t => 
-            t.id === tempId ? { ...t, progress: percent } : t
-         ));
-      });
+      // 2. 计算 SHA-256 哈希
+      const fileHash = await computeFileHash(file);
       
-      // 3. 更新任务ID并开始轮询
-      setTasks(prev => prev.map(t => 
-        t.id === tempId ? { ...t, id: task_id, status: 'pending' } : t
-      ));
-      
-      // 这里的 task_id 是后端返回的真实ID，用它来开启轮询
-      // 稍微延迟一下等待 state 更新
-      setTimeout(() => startPolling(task_id), 100);
+      // 检查是否已有相同 hash 的任务
+      const existingTask = tasks.find(t => t.fileHash === fileHash);
+      if (existingTask) {
+        // 移除刚创建的临时任务
+        setTasks(prev => prev.filter(t => t.id !== tempId));
+        setActiveTaskId(existingTask.id);
+        showToast('该文件已存在于任务列表中', 'success');
+        return;
+      }
 
-      showToast('视频上传成功，开始处理...', 'success');
+      // 更新哈希值，切换到上传状态
+      setTasks(prev => prev.map(t => 
+        t.id === tempId ? { ...t, fileHash, id: fileHash, status: 'uploading' } : t
+      ));
+      setActiveTaskId(fileHash);
+
+      // 3. 上传文件（文件名为 hash + ext）
+      const response = await apiService.uploadVideo(file, fileHash, (percent) => {
+        setTasks(prev => prev.map(t => 
+          t.fileHash === fileHash ? { ...t, progress: percent } : t
+        ));
+      });
+
+      // 4. 根据后端响应处理
+      if (response.status === 'completed') {
+        // 已处理过 → 直接标记成功并获取文本
+        setTasks(prev => prev.map(t => 
+          t.fileHash === fileHash ? { ...t, status: 'success', progress: 100 } : t
+        ));
+        
+        apiService.getTextContent(fileHash).then(text => {
+          setTasks(prev => prev.map(t => 
+            t.fileHash === fileHash ? { ...t, result: { text_content: text } } : t
+          ));
+        }).catch(console.error);
+        
+        showToast('该文件已处理过，直接返回结果', 'success');
+      } else {
+        // processing → 开始轮询
+        setTasks(prev => prev.map(t => 
+          t.fileHash === fileHash ? { ...t, status: 'processing', progress: 0 } : t
+        ));
+        startPolling(fileHash);
+        showToast('视频上传成功，开始处理...', 'success');
+      }
 
     } catch (error) {
       console.error(error);
       setTasks(prev => prev.map(t => 
-        t.id === tempId ? { ...t, status: 'error' } : t
+        t.id === tempId || t.fileHash === '' ? { ...t, status: 'error' } : t
       ));
-      showToast('上传失败，请检查后端服务', 'error');
+      showToast('操作失败，请检查后端服务', 'error');
     }
   };
 
   // 删除任务
-  const deleteTask = (e: React.MouseEvent, taskId: string) => {
-    e.stopPropagation(); // 防止触发 active 切换
+  const deleteTask = (e: React.MouseEvent, taskId: string, fileHash: string) => {
+    e.stopPropagation();
     
     setTasks(prev => prev.filter(t => t.id !== taskId));
-    stopPolling(taskId);
+    if (fileHash) stopPolling(fileHash);
 
     if (activeTaskId === taskId) {
       setActiveTaskId(null);
@@ -443,6 +506,7 @@ export default function VideoASRApp() {
                       {/* 状态小图标 (常驻) */}
                       <div className="ml-2 group-hover:opacity-0 transition-opacity">
                         {task.status === 'success' && <CheckCircle2 className="w-3 h-3 text-green-400" />}
+                        {task.status === 'hashing' && <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />}
                         {task.status === 'processing' && <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />}
                         {task.status === 'error' && <AlertCircle className="w-3 h-3 text-red-400" />}
                       </div>
@@ -458,7 +522,7 @@ export default function VideoASRApp() {
                         <Edit2 size={14} />
                       </button>
                       <button 
-                        onClick={(e) => deleteTask(e, task.id)} 
+                        onClick={(e) => deleteTask(e, task.id, task.fileHash)} 
                         className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
                         title="删除"
                       >
@@ -537,7 +601,7 @@ export default function VideoASRApp() {
                     {activeTask.status.toUpperCase()}
                   </span>
                 </h2>
-                <p className="text-xs text-gray-400 mt-1">ID: {activeTask.id}</p>
+                <p className="text-xs text-gray-400 mt-1">Hash: {activeTask.fileHash ? `${activeTask.fileHash.substring(0, 16)}...` : '计算中...'}</p>
               </div>
             </header>
 
@@ -564,7 +628,7 @@ export default function VideoASRApp() {
                   </div>
 
                   {/* 进度卡片 */}
-                  {(activeTask.status === 'uploading' || activeTask.status === 'pending' || activeTask.status === 'processing') && (
+                  {(activeTask.status === 'hashing' || activeTask.status === 'uploading' || activeTask.status === 'pending' || activeTask.status === 'processing') && (
                     <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                       <div className="flex justify-between items-center mb-2">
                         <span className="text-sm font-semibold text-gray-700">处理进度</span>
@@ -581,7 +645,9 @@ export default function VideoASRApp() {
                       </div>
                       <p className="text-xs text-gray-500 mt-3 flex items-center">
                         <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                        正在进行ASR文字识别与NLP处理...
+                        {activeTask.status === 'hashing' ? '正在计算文件指纹...' : 
+                         activeTask.status === 'uploading' ? '正在上传文件...' :
+                         '正在进行音轨提取与语音转文字处理...'}
                       </p>
                     </div>
                   )}
@@ -638,22 +704,32 @@ export default function VideoASRApp() {
                             <button 
                               onClick={() => {
                                 const link = document.createElement('a');
-                                link.href = `${API_BASE_URL}/download/${activeTask.id}`;
-                                link.download = `audio_${activeTask.name.replace(/\.[^.]+$/, '')}.mp3`;
+                                link.href = `${API_BASE_URL}/files/${activeTask.fileHash}/download/text`;
+                                link.download = `text_${activeTask.name.replace(/\.[^.]+$/, '')}.txt`;
                                 document.body.appendChild(link);
                                 link.click();
                                 document.body.removeChild(link);
-                                showToast('开始下载音频文件', 'success');
+                                showToast('开始下载文本文件', 'success');
                               }}
                               className="text-sm text-green-600 hover:text-green-800 font-medium px-4 py-2 hover:bg-green-50 rounded-lg transition-colors flex items-center"
                             >
                               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                               </svg>
-                              下载音频
+                              下载文本
                             </button>
-                            <button className="text-sm text-blue-600 hover:text-blue-800 font-medium px-4 py-2 hover:bg-blue-50 rounded-lg transition-colors">
-                                导出文本
+                            <button 
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = `${API_BASE_URL}/files/${activeTask.fileHash}/download/track`;
+                                link.download = `track_${activeTask.name.replace(/\.[^.]+$/, '')}.mp3`;
+                                document.body.appendChild(link);
+                                link.click();
+                                document.body.removeChild(link);
+                                showToast('开始下载音轨文件', 'success');
+                              }}
+                              className="text-sm text-blue-600 hover:text-blue-800 font-medium px-4 py-2 hover:bg-blue-50 rounded-lg transition-colors">
+                                下载音轨
                             </button>
                         </div>
                     )}
