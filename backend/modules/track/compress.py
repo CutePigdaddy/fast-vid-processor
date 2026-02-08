@@ -1,6 +1,10 @@
 import ffmpeg
 import os
+import logging
 from typing import Optional
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 def compresser(input_path: str, output_path: Optional[str] = None) -> Optional[str]:
     """
@@ -39,10 +43,11 @@ def compresser(input_path: str, output_path: Optional[str] = None) -> Optional[s
             .overwrite_output()
             .run(capture_stdout=True, capture_stderr=True)
         )
-        print(f"处理完成: {output_path}")
+        logger.info(f"音频压缩处理完成: {output_path}")
         return output_path
     except ffmpeg.Error as e:
-        print(f"FFmpeg 错误: {e.stderr.decode()}")
+        error_msg = e.stderr.decode() if e.stderr else str(e)
+        logger.error(f"FFmpeg 压缩失败: {error_msg}")
         return None
 
 # 使用示例
