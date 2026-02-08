@@ -6,46 +6,61 @@ from audio_separator.separator import Separator
 # 配置日志
 logger = logging.getLogger(__name__)
 
-def distractor(input_path: str, output_dir: Optional[str] = None) -> Optional[str]:
-    """
-    使用 AI 模型从音频中提取人声（原始版）。
-    """
-    input_path = os.path.abspath(input_path)
-    output_dir = os.path.abspath(output_dir) if output_dir else os.path.abspath("./distract_output/")
+# --- 模型单例挂载区域 ---
+_GLOBAL_SEPARATOR = None
 
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-    
-    if not os.path.exists(input_path):
-        logger.error(f"找不到输入文件: {input_path}")
-        return None
-
-    try:
-        logger.info(f"正在开始人声分离 (高保真加速模式): {os.path.basename(input_path)}")
-        
-        # 高保真平衡配置：
-        # 1. overlap = 0.25：这是兼顾效果与性能的“甜点”值。它能消除分段连接处的电流音或突兀感，保证提取质量。
-        # 2. batch_size = 12：由于开启了 overlap，计算开销和内存占用会上升，
-        #    我们将 batch 从 16 略微降到 12，以确保你的 16GB 物理内存不会溢出导致系统卡顿。
+def _get_initialized_separator(output_dir: str):
+    """
+    懒加载单例：确保模型在进程生命周期内只加载一次，并在后续调用中复用。
+    """
+    global _GLOBAL_SEPARATOR
+    if _GLOBAL_SEPARATOR is None:
+        logger.info("正在执行模型首次常驻挂载 (UVR-MDX-NET)...")
+        # 采用高保真平衡配置
         mdx_params = {
             "hop_length": 1024,
             "segment_size": 256, 
             "overlap": 0.25,
             "batch_size": 16, 
         }
-
-        separator = Separator(
+        _GLOBAL_SEPARATOR = Separator(
             output_format="mp3",
             output_single_stem="Vocals",
             output_dir=output_dir,
             log_level=logging.WARNING,
             mdx_params=mdx_params
         )
+        # 这是最耗时的 IO 和计算操作
+        _GLOBAL_SEPARATOR.load_model(model_filename="UVR-MDX-NET-Inst_HQ_5.onnx")
+    else:
+        # 如果已经加载，仅动态更新当前的输出目录，不重新加载模型
+        _GLOBAL_SEPARATOR.output_dir = output_dir
         
-        # 加载默认模型
-        separator.load_model(model_filename="UVR-MDX-NET-Inst_HQ_5.onnx")
+    return _GLOBAL_SEPARATOR
+
+def distractor(input_path: str, output_dir: Optional[str] = None) -> Optional[str]:
+    """
+    使用 AI 模型从音频中提取人声（单例加速版）。
+    原有调用逻辑不变，但第二次及以后的调用将省去模型加载时间。
+    """
+    input_path = os.path.abspath(input_path)
+    # 确定实际输出路径
+    actual_output_dir = os.path.abspath(output_dir) if output_dir else os.path.abspath("./distract_output/")
+
+    if not os.path.exists(actual_output_dir):
+        os.makedirs(actual_output_dir, exist_ok=True)
+    
+    if not os.path.exists(input_path):
+        logger.error(f"找不到输入文件: {input_path}")
+        return None
+
+    try:
+        logger.info(f"接收到人声分离请求: {os.path.basename(input_path)}")
         
-        # 执行分离
+        # 获取常驻内存的模型实例
+        separator = _get_initialized_separator(actual_output_dir)
+        
+        # 执行分离 (由于模型已在内存，此处将立即开始推理)
         output_files = separator.separate(audio_file_path=input_path)
         
         if not output_files:
@@ -54,10 +69,10 @@ def distractor(input_path: str, output_dir: Optional[str] = None) -> Optional[st
 
         # 查找包含 Vocals 的文件
         vocals_file = next((f for f in output_files if "Vocals" in f), output_files[0])
-        full_path = vocals_file if os.path.isabs(vocals_file) else os.path.join(output_dir, vocals_file)
+        full_path = vocals_file if os.path.isabs(vocals_file) else os.path.join(actual_output_dir, vocals_file)
         
         if os.path.exists(full_path):
-            logger.info(f"分离成功: {full_path}")
+            logger.info(f"分离任务完成: {full_path}")
             return full_path
         else:
             logger.error(f"找不到生成的音频文件: {full_path}")

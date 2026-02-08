@@ -49,6 +49,7 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+.vscode/
 cover/
 
 # Translations
@@ -211,3 +212,5 @@ __marimo__/
 
 # Data
 data/
+/output/
+/input/

@@ -15,6 +15,30 @@ try:
 except Exception:
     torch = None
 
+# 导入进度条库
+try:
+    from tqdm import tqdm
+    tqdm_available = True
+    logging.info("✅ 进度条库导入成功")
+except ImportError:
+    tqdm_available = False
+    logging.warning("⚠️ 进度条库导入失败，将使用普通输出")
+
+# 导入 AI 支持模块
+try:
+    from ai_support.ai_support import analyze_transcript
+    ai_support_available = True
+    logging.info("✅ AI 支持模块导入成功")
+except ImportError as e:
+    ai_support_available = False
+    logging.warning(f"⚠️ AI 支持模块导入失败: {e}")
+except Exception as e:
+    ai_support_available = False
+    logging.warning(f"⚠️ 初始化 AI 支持模块时出错: {e}")
+
+# 配置选项
+generate_ai_summary = True  # 是否生成 AI 总结
+
 
 # 配置日志
 logging.basicConfig(
@@ -410,10 +434,71 @@ def process_audio(audio_path: str, model_size: str = "medium", device_override: 
 
         result = processor.process_long_audio(audio_path)
 
-        # 默认输出文件名基于输入音频名生成
+        # 确保 output 文件夹存在
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 生成输出文件名
         base_name = os.path.splitext(os.path.basename(audio_path))[0]
-        output_file = f"{base_name}_transcription_with_timestamps.txt"
+        output_file = os.path.join(output_dir, f"{base_name}_transcription_with_timestamps.txt")
         processor.save_transcription_with_timestamps(result, output_file)
+
+        # 生成 AI 总结
+        if generate_ai_summary and ai_support_available:
+            logger.info("=" * 60)
+            logger.info("🤖 开始生成 AI 总结...")
+            logger.info("=" * 60)
+            try:
+                import time
+                start_time = time.time()
+                
+                # 使用进度条显示处理过程
+                if tqdm_available:
+                    # 模拟进度条，因为 analyze_transcript 是一个阻塞调用
+                    with tqdm(total=100, desc="AI 处理中", unit="%") as pbar:
+                        # 初始化
+                        pbar.update(10)
+                        pbar.set_postfix(status="初始化 AI 服务")
+                        time.sleep(0.5)
+                        
+                        # 处理中
+                        pbar.update(30)
+                        pbar.set_postfix(status="分析文本内容")
+                        time.sleep(0.5)
+                        
+                        # 调用 AI 服务
+                        pbar.update(40)
+                        pbar.set_postfix(status="调用 AI 模型")
+                        summary_result = analyze_transcript(output_file)
+                        
+                        # 完成
+                        pbar.update(20)
+                        pbar.set_postfix(status="生成总结报告")
+                        time.sleep(0.5)
+                else:
+                    # 无进度条时直接调用
+                    logger.info("处理中...")
+                    summary_result = analyze_transcript(output_file)
+                
+                end_time = time.time()
+                elapsed_time = end_time - start_time
+                
+                logger.info(f"✅ AI 总结生成成功！")
+                logger.info(f"⏱️  处理时间: {elapsed_time:.2f} 秒")
+                logger.info(f"📄 总结文件: {summary_result.get('output_file', '未知')}")
+                logger.info(f"📊 总结长度: {summary_result.get('summary_length', 0):,} 字符")
+                logger.info(f"📈 原始文本长度: {summary_result.get('text_length', 0):,} 字符")
+                logger.info(f"🔧 使用模板: {summary_result.get('template_used', '未知')}")
+                logger.info(f"🤖 AI 模型: {summary_result.get('ai_model', '未知')}")
+                logger.info("=" * 60)
+            except Exception as e:
+                logger.error(f"❌ 生成 AI 总结失败: {e}")
+                logger.warning("音频转录已完成，但 AI 总结生成失败")
+                logger.info("=" * 60)
+        elif not generate_ai_summary:
+            logger.info("⚠️ AI 总结生成已禁用，跳过总结生成")
+        else:
+            logger.info("⚠️ AI 支持模块不可用，跳过总结生成")
 
         logger.info("前3个片段示例:")
         for i, seg in enumerate(result.get("segments", [])[:3], 1):
