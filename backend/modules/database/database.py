@@ -1,58 +1,58 @@
 """
 SQLite数据库操作模块
-所有文件、任务的数据存储都在这里
+- files 表：file_hash (PK) + status (progress/success/failed)
+- tasks 表：task_id (PK) -> file_hash 映射，用于通过 Celery task_id 反查 hash
 """
 import sqlite3
 import logging
-from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 class FileDB:
-    """简化的SQLite数据库管理器"""
+    """SQLite数据库管理器 —— hash-based 文件去重 + 任务映射"""
     
     def __init__(self, db_path: str = "app.db"):
         self.db_path = db_path
         self._init_db()
     
     def _get_conn(self):
-        """获取数据库连接"""
+        """获取数据库连接（启用 WAL 模式提升并发性能）"""
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row  # 使返回结果为字典格式
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
     
     def _init_db(self):
         """初始化数据库表"""
         with self._get_conn() as conn:
-            # 创建files表（只有3个字段）
+            # files 表：以 file_hash 为主键，status 记录处理状态
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS files (
                     file_hash TEXT PRIMARY KEY,
-                    original_name TEXT,
-                    storage_path TEXT
+                    status TEXT DEFAULT 'progress'
                 )
             ''')
             
-            # 创建tasks表（4个字段）
+            # tasks 表：task_id -> file_hash 映射，用于从 Celery 回调中反查 hash
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS tasks (
                     task_id TEXT PRIMARY KEY,
                     file_hash TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
             
             conn.commit()
-            logger.info("数据库表创建完成")
+            logger.info("数据库表初始化完成")
     
     # ===== 文件操作 =====
     
     def check_file_exists(self, file_hash: str) -> bool:
-        """检查文件是否已存在"""
+        """检查文件哈希是否已存在"""
         with self._get_conn() as conn:
             cursor = conn.execute(
                 "SELECT 1 FROM files WHERE file_hash = ?", 
@@ -60,29 +60,38 @@ class FileDB:
             )
             return cursor.fetchone() is not None
     
-    def save_file_info(self, file_hash: str, original_name: str = None, storage_path: str = None):
-        """保存文件信息到数据库"""
-        with self._get_conn() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO files VALUES (?, ?, ?)",
-                (file_hash, original_name, storage_path)
-            )
-            conn.commit()
-    
-    def get_file_info(self, file_hash: str) -> Optional[Dict]:
-        """获取文件信息"""
+    def get_file_status(self, file_hash: str) -> Optional[str]:
+        """获取文件的处理状态，不存在返回 None"""
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT * FROM files WHERE file_hash = ?", 
+                "SELECT status FROM files WHERE file_hash = ?",
                 (file_hash,)
             )
             row = cursor.fetchone()
-            return dict(row) if row else None
+            return row["status"] if row else None
     
-    # ===== 任务操作 =====
+    def save_file_record(self, file_hash: str, status: str = "progress"):
+        """插入新的文件记录（初始状态 progress）"""
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO files (file_hash, status) VALUES (?, ?)",
+                (file_hash, status)
+            )
+            conn.commit()
+    
+    def update_file_status(self, file_hash: str, status: str):
+        """更新文件的处理状态 (progress / success / failed)"""
+        with self._get_conn() as conn:
+            conn.execute(
+                "UPDATE files SET status = ? WHERE file_hash = ?",
+                (status, file_hash)
+            )
+            conn.commit()
+    
+    # ===== 任务映射操作 =====
     
     def create_task(self, task_id: str, file_hash: str):
-        """创建新任务"""
+        """创建 task_id -> file_hash 映射"""
         with self._get_conn() as conn:
             conn.execute(
                 "INSERT INTO tasks (task_id, file_hash) VALUES (?, ?)",
@@ -90,46 +99,35 @@ class FileDB:
             )
             conn.commit()
     
-    def update_task_status(self, task_id: str, status: str):
-        """更新任务状态"""
-        with self._get_conn() as conn:
-            conn.execute(
-                "UPDATE tasks SET status = ? WHERE task_id = ?",
-                (status, task_id)
-            )
-            conn.commit()
-    
-    def get_task(self, task_id: str) -> Optional[Dict]:
-        """获取任务信息"""
+    def get_hash_by_task(self, task_id: str) -> Optional[str]:
+        """通过 task_id 反查 file_hash"""
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT * FROM tasks WHERE task_id = ?", 
+                "SELECT file_hash FROM tasks WHERE task_id = ?",
                 (task_id,)
             )
             row = cursor.fetchone()
-            return dict(row) if row else None
+            return row["file_hash"] if row else None
     
-    def get_file_tasks(self, file_hash: str) -> List[Dict]:
-        """获取文件的所有任务"""
+    def get_task_id_by_hash(self, file_hash: str) -> Optional[str]:
+        """通过 file_hash 查询最新的 task_id"""
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT * FROM tasks WHERE file_hash = ? ORDER BY created_at DESC", 
+                "SELECT task_id FROM tasks WHERE file_hash = ? ORDER BY created_at DESC LIMIT 1",
                 (file_hash,)
             )
-            return [dict(row) for row in cursor.fetchall()]
+            row = cursor.fetchone()
+            return row["task_id"] if row else None
     
-    # ===== 统计和工具方法 =====
+    # ===== 统计 =====
     
     def get_stats(self):
         """获取简单统计"""
         with self._get_conn() as conn:
             files = conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]
             tasks = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
-            
-            return {
-                "files": files,
-                "tasks": tasks
-            }
+            return {"files": files, "tasks": tasks}
+
 
 # 创建全局数据库实例
 db = FileDB()
