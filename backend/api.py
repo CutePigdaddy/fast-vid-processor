@@ -1,6 +1,6 @@
 import logging
 import os
-import aiofiles
+from utils import save_upload_file
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -56,13 +56,7 @@ async def create_task(task_type: str, file: UploadFile = File(...)):
     save_path = os.path.join(base_dir, f"{file_uuid}{ext}")
     logger.info(f"[{file_uuid}] 正在保存到: {save_path}")
 
-    # 使用 aiofiles 异步写入文件，避免阻塞
-    async with aiofiles.open(save_path, "wb") as buffer:
-        while True:
-            chunk = await file.read(1024 * 1024) # 1MB chunk
-            if not chunk:
-                break
-            await buffer.write(chunk)
+    await save_upload_file(file,save_path)
             
     logger.info(f"[{file_uuid}] 文件保存成功。")
 

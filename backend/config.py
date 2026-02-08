@@ -33,6 +33,9 @@ class Config:
         os.makedirs(self.AUDIO_DIR, exist_ok=True)
         os.makedirs(self.TEXT_DIR, exist_ok=True)
 
+    ASR_APP_ID = '4270270778'
+    ASR_Access_Token = '8fuJvmk4KDhKz3mrMCNGAYVR0uhJQBgd'
+
 # 导出实例
 settings = Config()
 # 初始化时确保目录存在

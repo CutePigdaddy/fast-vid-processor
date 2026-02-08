@@ -1,15 +1,15 @@
 import os
 import shutil
+import aiofiles
 from fastapi import UploadFile
 
-def save_upload_file(upload_file: UploadFile, destination_path: str):
+async def save_upload_file(upload_file: UploadFile, destination_path: str):
   os.makedirs(os.path.dirname(destination_path),exist_ok=True)
 
-  #使用shutil流式拷贝
-  try:
-    with open(destination_path,'wb') as buffer:
-      shutil.copyfileobj(upload_file.file, buffer)
-  finally:
-    upload_file.file.close()
-  
-  return os.path.abspath(destination_path)
+  # 使用 aiofiles 异步写入文件，避免阻塞
+  async with aiofiles.open(destination_path, "wb") as buffer:
+    while True:
+      chunk = await upload_file.read(1024 * 1024) # 1MB chunk
+      if not chunk:
+        break
+      await buffer.write(chunk)

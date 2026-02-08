@@ -23,7 +23,7 @@ import {
 // 如果为 false，将尝试连接你定义的 Python 后端 (localhost:8080)
 const MOCK_MODE = false; 
 
-const API_BASE_URL = 'http://localhost:8080';
+const API_BASE_URL = 'http://127.0.0.1:8000';
 const LOCAL_STORAGE_KEY = 'video_asr_tasks_v1';
 
 // --- 类型定义 ---
