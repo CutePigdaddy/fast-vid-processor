@@ -1,6 +1,6 @@
 from celery import Celery
-from modules.track import Separator
-from config import settings
+from .modules.track import Separator
+from .config import settings
 
 app = Celery(
   'tasks',
