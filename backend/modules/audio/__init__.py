@@ -1,1 +1,1 @@
-from .faster_audio_processor import LongAudioProcessor
+from .old_faster_audio_processor import LongAudioProcessor

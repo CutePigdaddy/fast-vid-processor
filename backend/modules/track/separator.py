@@ -117,4 +117,3 @@ class Separator:
         subs = self.extract_subtitles(input_path, output_dir)
         logger.info("全自动化任务处理完成")
         return {"audio": audio, "subtitles": subs}
-
