@@ -71,14 +71,13 @@ prompt_templates:
     语言：{language}
     
   quick_summary: |
-    请用简洁的语言总结以下转录文本：
-
+    你是一个专业的文本总结助手。请对以下转录文本进行简要总结：
     {text_content}
 
     要求：
     1. 忽略时间戳信息
-    2. 字数在300字以内
-    3. 突出重点内容
+    2. 字数在1000字以内
+    3. 突出重点内容,且不遗漏重要信息
     4. 语言：{language}
     
   conversation_analysis: |
