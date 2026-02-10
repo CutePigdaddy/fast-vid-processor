@@ -1,14 +1,19 @@
 import logging
 import os
 from utils import save_upload_file
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from celery import uuid, Task, chain
 from celery.result import AsyncResult
-from tasks import text_task, app as celery_app
+from tasks import extract_audio_task, asr_task, ai_summarize_task, extract_keyframes_task, app as celery_app #type: ignore
 from config import settings
 from modules.database import db
 
+extract_audio_task: Task = extract_audio_task
+asr_task: Task = asr_task
+ai_summarize_task: Task = ai_summarize_task
+extract_keyframes_task: Task = extract_keyframes_task
 # 设置详细日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("API")
@@ -25,88 +30,79 @@ app.add_middleware(
 )
 
 
-@app.post("/tasks/text")
-async def create_text_task(file: UploadFile = File(...)):
+@app.post("/tasks/{file_hash}")
+async def create_task(
+    file_hash: str,
+    file: UploadFile = File(...),
+    extract_audio: bool = Form(False),
+    transcribe: bool = Form(False),
+    ai_summarize: bool = Form(False),
+    extract_keyframes: bool = Form(False)
+
+    ):
     """
-    上传视频并创建 to_text 任务。
-    前端已将文件名设为 <SHA256_HASH><ext>，后端信任该哈希值。
-    
-    流程：
-    1. 从文件名提取哈希值
-    2. 查 SQLite 判断是否已处理过
-       - success → 直接返回已完成
-       - progress → 返回处理中（附带 task_id 供前端轮询）
-       - failed / 不存在 → 保存文件并下发新任务
+    创建处理任务。
+
+    :param file_hash: 文件的 SHA-256 哈希值，用于唯一标识文件。
+    :param file: 上传的视频文件。
+    :param extract_audio: 是否提取音轨。
+    :param transcribe: 是否进行语音转文字。
+    :param ai_summarize: 是否进行AI摘要。
+    :param extract_keyframes: 是否提取关键帧。
+    :return: 任务创建结果。 
     """
-    filename = file.filename or ''
-    name_without_ext, ext = os.path.splitext(filename)
-    file_hash = name_without_ext  # 文件名就是哈希值
+
     
     if not file_hash:
         raise HTTPException(status_code=400, detail="文件名不能为空")
     
-    logger.info(f"[{file_hash}] 收到上传请求, 扩展名: {ext}")
+    logger.info(f"[{file_hash}] 收到上传请求: filename={file.filename}, extract_audio={extract_audio}, transcribe={transcribe}, ai_summarize={ai_summarize}, extract_keyframes={extract_keyframes}")
 
     try:
-        # 查询数据库中的状态
-        existing_status = db.get_file_status(file_hash)
-        
-        if existing_status == "success":
-            logger.info(f"[{file_hash}] 文件已处理完成，直接返回")
-            return {
-                "status": "completed",
-                "file_hash": file_hash,
-                "message": "该文件已处理完成"
-            }
-        
-        if existing_status == "progress":
-            # 正在处理中，查找已有的 task_id 返回给前端用于轮询
-            task_id = db.get_task_id_by_hash(file_hash)
-            logger.info(f"[{file_hash}] 文件正在处理中, task_id: {task_id}")
-            return {
-                "status": "processing",
-                "file_hash": file_hash,
-                "task_id": task_id,
-                "message": "该文件正在处理中"
-            }
-        
-        # failed 或不存在 → 需要（重新）处理
         # 创建目录结构
         settings.ensure_hash_dirs(file_hash)
-        
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="上传文件不能为空")
+        _,ext = os.path.splitext(file.filename)
         # 保存源文件到 data/<HASH>/source/<HASH><ext>
         source_dir = settings.get_source_dir(settings.DATA_DIR, file_hash)
         save_path = os.path.join(source_dir, f"{file_hash}{ext}")
         
         logger.info(f"[{file_hash}] 正在保存到: {save_path}")
-        async with aiofiles.open(save_path, "wb") as buffer:
-            while True:
-                chunk = await file.read(1024 * 1024)  # 1MB chunk
-                if not chunk:
-                    break
-                await buffer.write(chunk)
+        await save_upload_file(file, save_path)
         logger.info(f"[{file_hash}] 文件保存成功")
         
         # 写入/更新数据库记录
-        if existing_status == "failed":
-            db.update_file_status(file_hash, "progress")
-        else:
-            db.save_file_record(file_hash, status="progress")
         
         # 下发 Celery 任务
-        result = text_task.delay(file_hash)
-        task_id = result.id
-        
-        # 记录 task_id -> file_hash 映射
-        db.create_task(task_id, file_hash)
-        
-        logger.info(f"[{file_hash}] Celery 任务已下发, task_id: {task_id}")
-        
+        workflow_tasks = []
+        response_tasks = []
+        if extract_audio:
+          audio_task_id = uuid()
+          workflow_tasks.append(extract_audio_task.si(file_hash).set(task_id=audio_task_id))
+          response_tasks.append({"task_name": "extract_audio", "task_id": audio_task_id})
+        if transcribe:
+          if not extract_audio:
+              raise HTTPException(status_code=400, detail="语音转文字需要先提取音轨")
+          asr_task_id = uuid()
+          workflow_tasks.append(asr_task.si(file_hash).set(task_id=asr_task_id))
+          response_tasks.append({"task_name": "asr", "task_id": asr_task_id})
+        if ai_summarize:
+          if not transcribe:
+              raise HTTPException(status_code=400, detail="AI摘要需要先进行语音转文字")
+          ai_summarize_task_id = uuid()
+          workflow_tasks.append(ai_summarize_task.si(file_hash).set(task_id=ai_summarize_task_id))
+          response_tasks.append({"task_name": "ai_summarize", "task_id": ai_summarize_task_id})
+        if extract_keyframes:
+          extract_keyframes_task_id = uuid()
+          workflow_tasks.append(extract_keyframes_task.si(file_hash).set(task_id=extract_keyframes_task_id))
+          response_tasks.append({"task_name": "extract_keyframes", "task_id": extract_keyframes_task_id})
+        #数据库记录taskid
+        workflow = chain(*workflow_tasks)
+        workflow.apply_async()
         return {
             "status": "processing",
-            "file_hash": file_hash,
-            "task_id": task_id,
-            "message": "任务已创建"
+            "tasks": response_tasks
         }
 
     except HTTPException as he:
@@ -120,101 +116,25 @@ async def create_text_task(file: UploadFile = File(...)):
 def get_file_status(file_hash: str):
     """
     查询文件处理状态。
-    - SQLite 中 status == 'success' → 直接返回完成（不查 Redis）
-    - SQLite 中 status == 'progress' → 查 Redis 获取 Celery 实时状态
-    - SQLite 中 status == 'failed' → 返回失败
-    - 不存在 → 404
     """
-    existing_status = db.get_file_status(file_hash)
+    #数据库轮询查询taskid
     
-    if existing_status is None:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    
-    if existing_status == "success":
-        # 已完成，返回各输出文件是否存在
-        text_dir = settings.get_text_dir(settings.DATA_DIR, file_hash)
-        track_dir = settings.get_track_dir(settings.DATA_DIR, file_hash)
-        vocal_dir = settings.get_vocal_dir(settings.DATA_DIR, file_hash)
-        
-        return {
-            "status": "success",
-            "file_hash": file_hash,
-            "files": {
-                "text": os.path.exists(os.path.join(text_dir, f"{file_hash}.txt")),
-                "track": os.path.exists(os.path.join(track_dir, f"{file_hash}.mp3")),
-                "vocal": os.path.exists(os.path.join(vocal_dir, f"{file_hash}.mp3")),
-            }
-        }
-    
-    if existing_status == "failed":
-        return {
-            "status": "failed",
-            "file_hash": file_hash,
-        }
-    
-    # progress → 查 Celery 获取细粒度状态
-    task_id = db.get_task_id_by_hash(file_hash)
-    if not task_id:
-        return {
-            "status": "progress",
-            "file_hash": file_hash,
-            "celery_status": "UNKNOWN"
-        }
-    
-    result = AsyncResult(task_id, app=celery_app)
-    
-    # 映射 Celery 状态
-    celery_status = result.status  # PENDING, STARTED, separated, distracted, converted, SUCCESS, FAILURE
-    celery_meta = None
-    
-    if result.status == "FAILURE":
-        # Celery 标记失败但 SQLite 可能还没更新（竞态条件），同步一下
-        db.update_file_status(file_hash, "failed")
-        return {
-            "status": "failed",
-            "file_hash": file_hash,
-        }
-    
-    if result.status == "SUCCESS":
-        # Celery 标记成功但 SQLite 可能还没更新，同步一下
-        db.update_file_status(file_hash, "success")
-        return {
-            "status": "success",
-            "file_hash": file_hash,
-            "files": {
-                "text": True,
-                "track": True,
-                "vocal": True,
-            }
-        }
-    
-    # 处理中 —— 返回 Celery 的自定义中间状态
-    if hasattr(result, 'info') and isinstance(result.info, dict):
-        celery_meta = result.info
-    
-    return {
-        "status": "progress",
-        "file_hash": file_hash,
-        "celery_status": celery_status,
-        "meta": celery_meta
-    }
 
 
 @app.get("/files/{file_hash}/download/{file_type}")
 def download_file(file_hash: str, file_type: str):
     """
     下载处理后的文件。
-    file_type: text / track / vocal / source
+    file_type: text / track / vocal / source / keyframes
     """
     # 检查文件是否存在于数据库
-    if not db.check_file_exists(file_hash):
-        raise HTTPException(status_code=404, detail="文件不存在")
     
     # 根据 file_type 确定路径
     type_map = {
         "text": (settings.get_text_dir, f"{file_hash}.txt"),
         "track": (settings.get_track_dir, f"{file_hash}.mp3"),
         "vocal": (settings.get_vocal_dir, f"{file_hash}.mp3"),
+        "keyframes": (settings.get_keyframes_dir, "")
     }
     
     if file_type == "source":
@@ -245,10 +165,7 @@ def get_text_content(file_hash: str):
     """
     直接获取转写文本内容（前端展示用）。
     """
-    status = db.get_file_status(file_hash)
-    if status != "success":
-        raise HTTPException(status_code=404, detail="文件尚未处理完成")
-    
+    #数据库查询状态
     text_dir = settings.get_text_dir(settings.DATA_DIR, file_hash)
     text_path = os.path.join(text_dir, f"{file_hash}.txt")
     

@@ -60,7 +60,7 @@ def separate_vocal_step(file_hash: str, track_path: str):
     return target_vocal_path
 
 
-def transcribe_vocal_step(file_hash: str, vocal_path: str):
+def transcribe_vocal_step(file_hash: str):
     """模块化步骤：语音转文字到 data/<HASH>/text/"""
     text_dir = settings.get_text_dir(settings.DATA_DIR, file_hash)
     os.makedirs(text_dir, exist_ok=True)

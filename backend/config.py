@@ -41,6 +41,16 @@ class Config:
         """文本目录: data/<HASH>/text/"""
         return os.path.join(data_dir, file_hash, "text")
     
+    @staticmethod
+    def get_keyframes_dir(data_dir: str, file_hash: str) -> str:
+        """关键帧目录: data/<HASH>/keyframes/"""
+        return os.path.join(data_dir, file_hash, "keyframes")
+    
+    @staticmethod
+    def get_ai_summary_dir(data_dir: str, file_hash: str) -> str:
+        """AI摘要目录: data/<HASH>/summary/"""
+        return os.path.join(data_dir, file_hash, "summary")
+    
     def ensure_hash_dirs(self, file_hash: str):
         """为某个 hash 创建完整的目录结构"""
         for dir_fn in [self.get_source_dir, self.get_track_dir, self.get_vocal_dir, self.get_text_dir]:
