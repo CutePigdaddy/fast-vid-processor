@@ -91,7 +91,7 @@ async def create_task(
             audio_task_id = uuid()
             db.create_task(audio_task_id, file_hash, "extract_audio")
             db.update_processed_operation(file_hash, "extract_audio", "pending", task_id=audio_task_id)
-            workflow_tasks.append(extract_audio_task.si(file_hash).set(task_id=audio_task_id))
+            workflow_tasks.append(extract_audio_task.si(file_hash,audio_task_id).set(task_id=audio_task_id))
             response_tasks.append({"task_name": "extract_audio", "task_id": audio_task_id})
         if transcribe:
             if not extract_audio and not db.has_operation_completed(file_hash, "extract_audio"):
@@ -101,7 +101,7 @@ async def create_task(
             asr_task_id = uuid()
             db.create_task(asr_task_id, file_hash, "transcribe")
             db.update_processed_operation(file_hash, "transcribe", "pending", task_id=asr_task_id)
-            workflow_tasks.append(asr_task.si(file_hash).set(task_id=asr_task_id))
+            workflow_tasks.append(asr_task.si(file_hash, asr_task_id).set(task_id=asr_task_id))
             response_tasks.append({"task_name": "asr", "task_id": asr_task_id})
         if ai_summarize:
             if not transcribe and not db.has_operation_completed(file_hash, "transcribe"):
@@ -109,13 +109,13 @@ async def create_task(
             ai_summarize_task_id = uuid()
             db.create_task(ai_summarize_task_id, file_hash, "ai_summarize")
             db.update_processed_operation(file_hash, "ai_summarize", "pending", task_id=ai_summarize_task_id)
-            workflow_tasks.append(ai_summarize_task.si(file_hash).set(task_id=ai_summarize_task_id))
+            workflow_tasks.append(ai_summarize_task.si(file_hash, ai_summarize_task_id).set(task_id=ai_summarize_task_id))
             response_tasks.append({"task_name": "ai_summarize", "task_id": ai_summarize_task_id})
         if extract_keyframes:
             extract_keyframes_task_id = uuid()
             db.create_task(extract_keyframes_task_id, file_hash, "extract_keyframes")
             db.update_processed_operation(file_hash, "extract_keyframes", "pending", task_id=extract_keyframes_task_id)
-            workflow_tasks.append(extract_keyframes_task.si(file_hash).set(task_id=extract_keyframes_task_id))
+            workflow_tasks.append(extract_keyframes_task.si(file_hash, extract_keyframes_task_id).set(task_id=extract_keyframes_task_id))
             response_tasks.append({"task_name": "extract_keyframes", "task_id": extract_keyframes_task_id})
         #数据库记录taskid
         workflow = chain(*workflow_tasks)
@@ -139,16 +139,19 @@ def get_status(file_hash: str):
     {
       "extract_audio": {
         "status": "completed",
+        "task_id": "...",
         "result_path": "/path/to/audio.wav",
         "completed_at": "2026-02-10T10:30:00"
       },
       "transcribe": {
         "status": "completed",
+        "task_id": "...",
         "result_path": "/path/to/transcript.txt",
         "completed_at": "2026-02-10T10:35:00"
       },
       "ai_summarize": {
         "status": "completed",
+        "task_id": "...",
         "result_path": "/path/to/summary.md",
         "completed_at": "2026-02-10T10:40:00"
       }
