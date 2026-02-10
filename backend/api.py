@@ -139,16 +139,19 @@ def get_status(file_hash: str):
     {
       "extract_audio": {
         "status": "completed",
+        "task_id": "...",
         "result_path": "/path/to/audio.wav",
         "completed_at": "2026-02-10T10:30:00"
       },
       "transcribe": {
         "status": "completed",
+        "task_id": "...",
         "result_path": "/path/to/transcript.txt",
         "completed_at": "2026-02-10T10:35:00"
       },
       "ai_summarize": {
         "status": "completed",
+        "task_id": "...",
         "result_path": "/path/to/summary.md",
         "completed_at": "2026-02-10T10:40:00"
       }
