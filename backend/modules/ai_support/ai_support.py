@@ -119,8 +119,8 @@ class ConfigManager:
 
 要求：
 1. 忽略时间戳信息
-2. 字数在300字以内
-3. 突出重点内容
+2. 字数在1000字以内
+3. 突出重点内容,且不遗漏重要信息
 4. 语言：{language}'''
             }
         }
@@ -531,6 +531,14 @@ class AISupport:
         print(f"✅ 系统初始化完成")
         print(f"   AI服务: {self.ai_config.get('provider', '未配置')}")
         print(f"   输出目录: {self.config.get('summarization', {}).get('output_dir', './summaries')}")
+
+    def _get_backend_data_dir(self) -> Path:
+        """获取backend/data目录路径"""
+        module_dir = Path(__file__).resolve().parent
+        backend_dir = module_dir.parents[2]
+        data_dir = backend_dir / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        return data_dir
     
     def _create_ai_client(self) -> BaseAIClient:
         """创建AI客户端"""
@@ -626,6 +634,69 @@ class AISupport:
         print(f"   📊 原始文本: {len(file_content):,} 字符")
         print(f"   📝 AI总结: {len(summary):,} 字符")
         
+        return result
+
+    def summarize_by_hash(self, file_hash: str, template_name: str = "quick_summary") -> Dict[str, Any]:
+        """
+        根据file_hash读取文本并生成总结。
+
+        返回:
+        {
+            "success": bool,
+            "file_hash": str,
+            "input_file": str,
+            "output_file": str,
+            "text_length": int,
+            "summary_length": int,
+            "template_used": str,
+            "ai_model": str,
+            "metadata": Dict[str, Any]
+        }
+        """
+        data_dir = self._get_backend_data_dir()
+        input_path = data_dir / f"{file_hash}.text"
+        output_path = data_dir / f"{file_hash}.summary"
+
+        print(f"\n📂 开始分析文件: {input_path}")
+
+        if not input_path.exists():
+            raise FileNotFoundError(f"文件不存在: {input_path}")
+
+        processor = TranscriptProcessor(str(input_path))
+        file_content = processor.get_content()
+        metadata = processor.get_metadata()
+
+        if not file_content.strip():
+            raise ValueError("文件内容为空")
+
+        print(f"📄 读取文件成功，长度: {len(file_content):,} 字符")
+
+        try:
+            summary = self.summary_generator.generate(file_content, template_name)
+        except Exception as e:
+            print(f"❌ 生成总结失败: {str(e)}")
+            raise
+
+        output_path.write_text(summary, encoding="utf-8")
+
+        ai_model = self.ai_config.get('model', 'unknown')
+        result = {
+            'success': True,
+            'file_hash': file_hash,
+            'input_file': str(input_path),
+            'output_file': str(output_path),
+            'text_length': len(file_content),
+            'summary_length': len(summary),
+            'template_used': template_name,
+            'ai_model': ai_model,
+            'metadata': metadata
+        }
+
+        print(f"\n🎉 分析完成!")
+        print(f"   📍 输出文件: {output_path}")
+        print(f"   📊 原始文本: {len(file_content):,} 字符")
+        print(f"   📝 AI总结: {len(summary):,} 字符")
+
         return result
     
     def list_templates(self) -> List[str]:
@@ -756,6 +827,28 @@ def analyze_transcript(file_path: str, template: str = "timestamp_summary",
     """
     ai_support = AISupport(config_path)
     return ai_support.analyze_file(file_path, template)
+
+
+def summarize_by_hash(file_hash: str, template: str = "quick_summary",
+                     config_path: str = None) -> Dict[str, Any]:
+    """
+    根据file_hash读取文本并生成总结。
+
+    返回:
+    {
+        "success": bool,
+        "file_hash": str,
+        "input_file": str,
+        "output_file": str,
+        "text_length": int,
+        "summary_length": int,
+        "template_used": str,
+        "ai_model": str,
+        "metadata": Dict[str, Any]
+    }
+    """
+    ai_support = AISupport(config_path)
+    return ai_support.summarize_by_hash(file_hash, template)
 
 
 def get_available_templates(config_path: str = None) -> List[str]:

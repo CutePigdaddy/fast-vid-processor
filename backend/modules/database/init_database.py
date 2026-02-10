@@ -113,8 +113,7 @@ class DatabaseInitializer:
                         started_at TIMESTAMP,
                         completed_at TIMESTAMP,
                         result_path TEXT,
-                        error_message TEXT,
-                        UNIQUE(file_hash, task_type)
+                        error_message TEXT
                     )
                 ''')
                 
@@ -123,6 +122,7 @@ class DatabaseInitializer:
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_file ON tasks(file_hash)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(task_type)')
                 conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
+                conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_file_type ON tasks(file_hash, task_type, created_at DESC)')
                 
                 conn.commit()
                 logger.info("表结构创建完成")
@@ -227,7 +227,7 @@ class DatabaseInitializer:
             indexes = [row[0] for row in cursor.fetchall()]
             
             required_indexes = [
-                'idx_tasks_file', 'idx_tasks_type', 'idx_tasks_status'
+                'idx_tasks_file', 'idx_tasks_type', 'idx_tasks_status', 'idx_tasks_file_type'
             ]
             
             for idx in required_indexes:

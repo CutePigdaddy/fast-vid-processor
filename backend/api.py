@@ -256,12 +256,20 @@ def download_file(task_id: str):
 def get_text_content(file_hash: str):
     """
     直接获取转写文本内容（前端展示用）。
+    返回格式:
+    {
+        "file_hash": "...",
+        "text_content": "转写的文本内容..."
+    }
+
+    :param file_hash: 文件的唯一标识（MD5 哈希值）。
+    :return: 转写文本内容。
     """
     #数据库查询状态
     status = db.has_operation_completed(file_hash, "transcribe")
     if not status:
         raise HTTPException(status_code=400, detail="转写任务未完成")
-    text_path = os.path.join(text_dir, f"{file_hash}.txt")
+    text_path = os.path.join(settings.get_text_dir(settings.DATA_DIR, file_hash), f"{file_hash}.txt")
     
     if not os.path.exists(text_path):
         raise HTTPException(status_code=404, detail="文本文件不存在")
