@@ -129,12 +129,12 @@ class FileDB:
             
             return file_info
     
-    def update_processed_operation(self, file_hash: str, operation: str, status: str = "completed", result_path: str = '', completed_at: str = '', task_id: str = None):
+    def update_processed_operation(self, file_hash: str, operation: str, status: str = "success", result_path: str = '', completed_at: str = '', task_id: str = None):
         """
         更新文件的处理操作状态
         :param file_hash: 文件哈希
         :param operation: 操作类型（如 extract_audio, transcribe, ai_summarize）
-        :param status: 操作状态（completed, failed, in_progress）
+        :param status: 操作状态（pending, running, success, failed）
         :param result_path: 结果文件路径
         :param completed_at: 完成时间
         :param task_id: 关联的任务ID
@@ -323,12 +323,12 @@ class FileDB:
             task_type = task_info["task_type"]
             
             # 更新文件的处理操作状态
-            operation_status = "completed" if status == "success" else "failed"
+            operation_status = status
             self.update_processed_operation(
                 file_hash=file_hash,
                 operation=task_type,
-                status=operation_status,,
-                task_id=task_id
+                status=operation_status,
+                task_id=task_id,
                 result_path=result_path,
                 completed_at=datetime.now().isoformat()
             )

@@ -34,7 +34,6 @@ app.add_middleware(
 async def create_task(
     file: UploadFile = File(...),
     file_hash: str = Form(...),
-    file_origin_name: str = Form(...),
     extract_audio: bool = Form(False),
     transcribe: bool = Form(False),
     ai_summarize: bool = Form(False),
@@ -46,27 +45,25 @@ async def create_task(
 
     :param file: 上传的视频文件。
     :param file_hash: 文件的唯一标识（MD5 哈希值）。
-    :param file_origin_name: 文件的原始名称。
     :param extract_audio: 是否提取音轨。
     :param transcribe: 是否进行语音转文字。
     :param ai_summarize: 是否进行AI摘要。
     :param extract_keyframes: 是否提取关键帧。
     :return: 任务创建结果。 
     """
-
+    if not file.filename or not file_hash:
+        raise HTTPException(status_code=400, detail="文件不能为空")
+    file_origin_name, ext = os.path.splitext(file.filename)
     
-    if not file_hash:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
     logger.info(f"[{file_hash}] 收到上传请求: filename={file_origin_name}, extract_audio={extract_audio}, transcribe={transcribe}, ai_summarize={ai_summarize}, extract_keyframes={extract_keyframes}")
     try:
         # 创建目录结构
         settings.ensure_hash_dirs(file_hash)
         if not file_origin_name:
             raise HTTPException(status_code=400, detail="上传文件名不能为空")
-        _,ext = os.path.splitext(file_origin_name)
         # 保存源文件到 data/<HASH>/source/<HASH><ext>
         source_dir = settings.get_source_dir(settings.DATA_DIR, file_hash)
-        save_path = os.path.join(source_dir, f"{file_origin_name}{ext}")
+        save_path = os.path.join(source_dir, f"{file_origin_name}.{ext}")
         if os.path.exists(save_path):
             logger.warning(f"[{file_hash}] 文件已存在: {save_path}")
         else:
@@ -88,35 +85,43 @@ async def create_task(
         if extract_audio:
             if db.has_operation_completed(file_hash, "extract_audio"):
                 logger.info(f"[{file_hash}] 音轨已提取，跳过任务")
-            audio_task_id = uuid()
-            db.create_task(audio_task_id, file_hash, "extract_audio")
-            db.update_processed_operation(file_hash, "extract_audio", "pending", task_id=audio_task_id)
-            workflow_tasks.append(extract_audio_task.si(file_hash,audio_task_id).set(task_id=audio_task_id))
-            response_tasks.append({"task_name": "extract_audio", "task_id": audio_task_id})
+            else:
+                audio_task_id = uuid()
+                db.create_task(audio_task_id, file_hash, "extract_audio")
+                db.update_processed_operation(file_hash, "extract_audio", "pending", task_id=audio_task_id)
+                workflow_tasks.append(extract_audio_task.si(file_hash, audio_task_id).set(task_id=audio_task_id))
+                response_tasks.append({"task_name": "extract_audio", "task_id": audio_task_id})
         if transcribe:
             if not extract_audio and not db.has_operation_completed(file_hash, "extract_audio"):
                  raise HTTPException(status_code=400, detail="语音转文字需要先提取音轨")
             if db.has_operation_completed(file_hash, "transcribe"):
                 logger.info(f"[{file_hash}] 转写已完成，跳过任务")
-            asr_task_id = uuid()
-            db.create_task(asr_task_id, file_hash, "transcribe")
-            db.update_processed_operation(file_hash, "transcribe", "pending", task_id=asr_task_id)
-            workflow_tasks.append(asr_task.si(file_hash, asr_task_id).set(task_id=asr_task_id))
-            response_tasks.append({"task_name": "asr", "task_id": asr_task_id})
+            else:
+                asr_task_id = uuid()
+                db.create_task(asr_task_id, file_hash, "transcribe")
+                db.update_processed_operation(file_hash, "transcribe", "pending", task_id=asr_task_id)
+                workflow_tasks.append(asr_task.si(file_hash, asr_task_id).set(task_id=asr_task_id))
+                response_tasks.append({"task_name": "asr", "task_id": asr_task_id})
         if ai_summarize:
             if not transcribe and not db.has_operation_completed(file_hash, "transcribe"):
                   raise HTTPException(status_code=400, detail="AI摘要需要先进行语音转文字")
-            ai_summarize_task_id = uuid()
-            db.create_task(ai_summarize_task_id, file_hash, "ai_summarize")
-            db.update_processed_operation(file_hash, "ai_summarize", "pending", task_id=ai_summarize_task_id)
-            workflow_tasks.append(ai_summarize_task.si(file_hash, ai_summarize_task_id).set(task_id=ai_summarize_task_id))
-            response_tasks.append({"task_name": "ai_summarize", "task_id": ai_summarize_task_id})
+            if db.has_operation_completed(file_hash, "ai_summarize"):
+                logger.info(f"[{file_hash}] AI摘要已完成，跳过任务")
+            else:
+                ai_summarize_task_id = uuid()
+                db.create_task(ai_summarize_task_id, file_hash, "ai_summarize")
+                db.update_processed_operation(file_hash, "ai_summarize", "pending", task_id=ai_summarize_task_id)
+                workflow_tasks.append(ai_summarize_task.si(file_hash, ai_summarize_task_id).set(task_id=ai_summarize_task_id))
+                response_tasks.append({"task_name": "ai_summarize", "task_id": ai_summarize_task_id})
         if extract_keyframes:
-            extract_keyframes_task_id = uuid()
-            db.create_task(extract_keyframes_task_id, file_hash, "extract_keyframes")
-            db.update_processed_operation(file_hash, "extract_keyframes", "pending", task_id=extract_keyframes_task_id)
-            workflow_tasks.append(extract_keyframes_task.si(file_hash, extract_keyframes_task_id).set(task_id=extract_keyframes_task_id))
-            response_tasks.append({"task_name": "extract_keyframes", "task_id": extract_keyframes_task_id})
+            if db.has_operation_completed(file_hash, "extract_keyframes"):
+                logger.info(f"[{file_hash}] 关键帧已提取，跳过任务")
+            else:
+                extract_keyframes_task_id = uuid()
+                db.create_task(extract_keyframes_task_id, file_hash, "extract_keyframes")
+                db.update_processed_operation(file_hash, "extract_keyframes", "pending", task_id=extract_keyframes_task_id)
+                workflow_tasks.append(extract_keyframes_task.si(file_hash, extract_keyframes_task_id).set(task_id=extract_keyframes_task_id))
+                response_tasks.append({"task_name": "extract_keyframes", "task_id": extract_keyframes_task_id})
         #数据库记录taskid
         workflow = chain(*workflow_tasks)
         workflow.apply_async()
@@ -137,20 +142,20 @@ def get_status(file_hash: str):
     获取文件处理状态。
     返回格式示例：
     {
-      "extract_audio": {
-        "status": "completed",
+            "extract_audio": {
+                "status": "success",
         "task_id": "...",
         "result_path": "/path/to/audio.wav",
         "completed_at": "2026-02-10T10:30:00"
       },
       "transcribe": {
-        "status": "completed",
+                "status": "success",
         "task_id": "...",
         "result_path": "/path/to/transcript.txt",
         "completed_at": "2026-02-10T10:35:00"
       },
       "ai_summarize": {
-        "status": "completed",
+                "status": "success",
         "task_id": "...",
         "result_path": "/path/to/summary.md",
         "completed_at": "2026-02-10T10:40:00"
