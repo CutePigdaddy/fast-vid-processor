@@ -3,7 +3,7 @@ import glob
 import logging
 from pathlib import Path
 from modules.track import Separator, distractor
-from modules.audio import LongAudioProcessor
+from modules.audio import ASR, LongAudioProcessor
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,15 @@ def transcribe_vocal_step(file_hash: str):
     
     return final_text_path
 
+def transcribe_vocal_step_online(file_hash: str):
+    """模块化步骤：在线语音转文字到 data/<HASH>/text/"""
+    text_dir = settings.get_text_dir(settings.DATA_DIR, file_hash)
+    os.makedirs(text_dir, exist_ok=True)
+    final_text_path = os.path.join(text_dir, f"{file_hash}.txt")
+    vocal_dir = settings.get_vocal_dir(settings.DATA_DIR, file_hash)
+    vocal_path = os.path.join(vocal_dir, f"{file_hash}.mp3")
+    result=ASR(input_path=vocal_path,output_path=final_text_path)
+    return result
 
 def process_video_to_text(file_hash: str, task_instance=None):
     """
