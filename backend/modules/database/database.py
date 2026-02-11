@@ -57,8 +57,7 @@ class FileDB:
                     started_at TIMESTAMP,
                     completed_at TIMESTAMP,
                     result_path TEXT,
-                    error_message TEXT,
-                    UNIQUE(file_hash, task_type)  -- 关键：防止重复任务
+                    error_message TEXT
                 )
             ''')
             
@@ -66,6 +65,7 @@ class FileDB:
             conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_file ON tasks(file_hash)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_type ON tasks(task_type)')
             conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)')
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_tasks_file_type ON tasks(file_hash, task_type, created_at DESC)')
             
             conn.commit()
     
@@ -81,7 +81,7 @@ class FileDB:
             cursor = conn.execute("SELECT 1 FROM files WHERE file_hash = ?", (file_hash,))
             return cursor.fetchone() is not None
     
-    def save_file_info(self, file_hash: str, original_name: str = None, storage_path: str = None) -> bool:
+    def save_file_info(self, file_hash: str, original_name: str = '', storage_path: str = '') -> bool:
         """
         保存文件信息
         :param file_hash: 文件哈希
@@ -129,14 +129,15 @@ class FileDB:
             
             return file_info
     
-    def update_processed_operation(self, file_hash: str, operation: str, status: str = "completed", result_path: str = None, completed_at: str = None):
+    def update_processed_operation(self, file_hash: str, operation: str, status: str = "success", result_path: str = '', completed_at: str = '', task_id: str = None):
         """
         更新文件的处理操作状态
         :param file_hash: 文件哈希
         :param operation: 操作类型（如 extract_audio, transcribe, ai_summarize）
-        :param status: 操作状态（completed, failed, in_progress）
+        :param status: 操作状态（pending, running, success, failed）
         :param result_path: 结果文件路径
         :param completed_at: 完成时间
+        :param task_id: 关联的任务ID
         """
         import json
         
@@ -152,7 +153,8 @@ class FileDB:
         operations[operation] = {
             "status": status,
             "result_path": result_path,
-            "completed_at": completed_at or datetime.now().isoformat()
+            "completed_at": completed_at or datetime.now().isoformat(),
+            "task_id": task_id
         }
         
         # 将操作信息转换为JSON字符串并保存
@@ -188,7 +190,7 @@ class FileDB:
         """
         operations = self.get_processed_operations(file_hash)
         operation_info = operations.get(operation, {})
-        return operation_info.get('status') == 'completed'
+        return operation_info.get('status') == 'success'
     
     def remove_processed_operation(self, file_hash: str, operation: str):
         """
@@ -226,11 +228,11 @@ class FileDB:
     
     def create_task(self, task_id: str, file_hash: str, task_type: str = "transcribe") -> bool:
         """
-        创建新任务（如果同类型任务已存在会失败）
+        创建新记录（支持同一文件多次重试）
         :param task_id: 任务ID（UUID）
         :param file_hash: 文件哈希
-        :param task_type: 任务类型（extract_audio, transcribe, ai_summarize, extract_keyframes）
-        :return: True如果创建成功，False如果任务已存在
+        :param task_type: 任务类型
+        :return: True如果创建成功
         """
         try:
             with self._get_conn() as conn:
@@ -246,17 +248,33 @@ class FileDB:
             return False
     
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """根据任务ID获取任务信息"""
+        """
+        根据任务ID获取任务信息
+        
+        :param task_id: 任务ID
+        :return: 任务信息字典{
+            "task_id": "...",
+            "file_hash": "...",
+            "task_type": "...",
+            "status": "pending/running/success/failed",
+            "created_at": "2026-02-10 ...",
+            "started_at": "...",
+            "completed_at": "...",
+            "result_path": "...",
+            "error_message": "..."
+            }   
+                    
+        """
         with self._get_conn() as conn:
             cursor = conn.execute("SELECT * FROM tasks WHERE task_id = ?", (task_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
     
     def find_task(self, file_hash: str, task_type: str) -> Optional[Dict[str, Any]]:
-        """查找特定文件的特定类型任务"""
+        """查找特定文件的特定类型最新任务"""
         with self._get_conn() as conn:
             cursor = conn.execute(
-                "SELECT * FROM tasks WHERE file_hash = ? AND task_type = ?",
+                "SELECT * FROM tasks WHERE file_hash = ? AND task_type = ? ORDER BY created_at DESC LIMIT 1",
                 (file_hash, task_type)
             )
             row = cursor.fetchone()
@@ -272,7 +290,7 @@ class FileDB:
             conn.commit()
             logger.info(f"任务开始: {task_id}")
     
-    def update_task_completed(self, task_id: str, status: str, result_path: str = None, error_message: str = None):
+    def update_task_completed(self, task_id: str, status: str, result_path: str = "", error_message: str = ""):
         """
         标记任务完成
         :param task_id: 任务ID
@@ -305,11 +323,12 @@ class FileDB:
             task_type = task_info["task_type"]
             
             # 更新文件的处理操作状态
-            operation_status = "completed" if status == "success" else "failed"
+            operation_status = status
             self.update_processed_operation(
                 file_hash=file_hash,
                 operation=task_type,
                 status=operation_status,
+                task_id=task_id,
                 result_path=result_path,
                 completed_at=datetime.now().isoformat()
             )

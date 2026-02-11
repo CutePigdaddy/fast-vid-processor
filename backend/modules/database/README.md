@@ -66,7 +66,7 @@ database/
 | `completed_at` | TIMESTAMP | | 任务完成的时间 |
 | `result_path` | TEXT | | 任务执行结果的文件路径 |
 | `error_message` | TEXT | | 任务失败时的错误信息 |
-| `UNIQUE` | | (file_hash, task_type) | 唯一约束，防止对同一文件重复创建相同类型的任务 |
+
 
 ### 3.2 索引设计
 
@@ -75,7 +75,7 @@ database/
 | `idx_tasks_file` | tasks | file_hash | 加速按文件查询任务 | 大幅提高文件相关任务的查询速度 |
 | `idx_tasks_type` | tasks | task_type | 加速按类型查询任务 | 提高任务类型筛选的性能 |
 | `idx_tasks_status` | tasks | status | 加速按状态查询任务 | 提高任务状态筛选的性能 |
-| `idx_tasks_file_type` | tasks | (file_hash, task_type) | 支持唯一约束和组合查询 | 确保任务唯一性，加速组合条件查询 |
+| `idx_tasks_file_type` | tasks | (file_hash, task_type, created_at DESC) | 加速最新任务查询 | 极大提高获取最新处理记录的效率 |
 
 ### 3.3 数据模型
 
@@ -114,17 +114,14 @@ erDiagram
   "extract_audio": {
     "status": "completed",
     "result_path": "/path/to/audio.wav",
-    "completed_at": "2026-02-10T10:30:00"
+    "completed_at": "2026-02-10T10:30:00",
+    "task_id": "extract_audio_8f2d3e"
   },
   "transcribe": {
     "status": "completed",
     "result_path": "/path/to/transcript.txt",
-    "completed_at": "2026-02-10T10:35:00"
-  },
-  "ai_summarize": {
-    "status": "completed",
-    "result_path": "/path/to/summary.md",
-    "completed_at": "2026-02-10T10:40:00"
+    "completed_at": "2026-02-10T10:35:00",
+    "task_id": "transcribe_a1b2c3"
   }
 }
 ```
@@ -175,15 +172,16 @@ erDiagram
 **使用场景**：
 当用户重复上传同一文件时，记录上传次数，便于统计和分析用户行为。
 
-#### `update_processed_operation(file_hash: str, operation: str, status: str = "completed", result_path: str = None, completed_at: str = None) -> bool`
+#### `update_processed_operation(file_hash: str, operation: str, status: str = "completed", result_path: str = None, completed_at: str = None, task_id: str = None) -> bool`
 更新文件的处理操作状态，记录操作的执行情况。
 
 **参数**：
 - `file_hash`：文件的哈希值
-- `operation`：操作类型（如 extract_audio, transcribe, ai_summarize）
-- `status`：操作状态（completed, failed, in_progress），默认 completed
-- `result_path`：结果文件路径，默认 None
-- `completed_at`：完成时间，默认当前时间
+- `operation`：操作类型
+- `status`：操作状态
+- `result_path`：结果文件路径
+- `completed_at`：完成时间
+- `task_id`：关联的最新任务ID (可选)
 
 **返回值**：
 - `bool`：更新是否成功
@@ -232,48 +230,16 @@ erDiagram
 ### 4.2 任务操作
 
 #### `create_task(task_id: str, file_hash: str, task_type: str = "transcribe") -> bool`
-创建新任务，用于跟踪文件的处理过程。
-
-**参数**：
-- `task_id`：任务的唯一标识符
-- `file_hash`：关联的文件哈希值
-- `task_type`：任务类型（默认：transcribe）
-
-**返回值**：
-- `bool`：创建是否成功（任务不存在时返回 True）
-
-**使用场景**：
-当需要处理一个文件时，创建对应的任务记录，以便跟踪处理进度和结果。
+创建新任务，支持对同一文件/类型记录多次处理尝试（由于去除了唯一约束，建议每次生成新的 UUID）。
 
 #### `get_task(task_id: str) -> Optional[Dict[str, Any]]`
 获取任务信息，返回任务的详细状态和执行情况。
 
-**参数**：
-- `task_id`：任务的唯一标识符
-
-**返回值**：
-- `Dict`：任务信息字典
-- `None`：任务不存在
-
-**使用场景**：
-需要查询特定任务的执行状态、结果路径或错误信息时使用。
-
 #### `find_task(file_hash: str, task_type: str) -> Optional[Dict[str, Any]]`
-根据文件哈希和任务类型查找任务，用于检查特定类型的任务是否已存在。
-
-**参数**：
-- `file_hash`：文件的哈希值
-- `task_type`：任务类型
-
-**返回值**：
-- `Dict`：任务信息字典
-- `None`：任务不存在
-
-**使用场景**：
-在创建新任务前，检查是否已经存在相同类型的任务，避免重复创建。
+根据文件哈希和任务类型查找**最新**的一条任务记录（按 `created_at` 降序）。
 
 #### `update_task_status(task_id: str, status: str, result_path: str = None, error_message: str = None) -> bool`
-更新任务状态，记录任务的执行进度和结果。
+更新任务状态，记录任务的执行进度和结果。同步更新 `files` 表中的 `processed_operations`（包括 `task_id`）。
 
 **参数**：
 - `task_id`：任务的唯一标识符

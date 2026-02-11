@@ -1,6 +1,6 @@
-from .auth import BilibiliLoginManager
-from .bilibili_stream import BilibiliStream
-from .clawler import (
+from modules.online.auth import BilibiliLoginManager
+from modules.online.bilibili_stream import BilibiliStream
+from modules.online.clawler import (
     get_playinfo_data,
     download_audio,
     download_videoshot,

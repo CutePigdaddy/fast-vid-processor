@@ -2,9 +2,9 @@ import requests
 import re
 import json
 import os
-from .bilibili_stream import BilibiliStream
-from .utils import fix_audio_duration,get_Bvid,get_cid
-from .auth import BilibiliLoginManager
+from modules.online.bilibili_stream import BilibiliStream
+from modules.online.utils import fix_audio_duration, get_Bvid, get_cid
+from modules.online.auth import BilibiliLoginManager
 AUDIO_PATH = "Audio"
 VIDEO_PATH = "Video"
 VIDEOSHOT_PATH = "Videoshot"

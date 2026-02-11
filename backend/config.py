@@ -47,7 +47,7 @@ class Config:
         return os.path.join(data_dir, file_hash, "keyframes")
     
     @staticmethod
-    def get_ai_summary_dir(data_dir: str, file_hash: str) -> str:
+    def get_summary_dir(data_dir: str, file_hash: str) -> str:
         """AI摘要目录: data/<HASH>/summary/"""
         return os.path.join(data_dir, file_hash, "summary")
     

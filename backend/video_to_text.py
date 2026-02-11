@@ -2,8 +2,8 @@
 import os
 import logging
 from pathlib import Path
-from .modules.track import Separator, compresser, distractor
-from .modules.online import get_playinfo_data,download_audio
+from modules.track import Separator, compresser, distractor
+from modules.online import get_playinfo_data, download_audio
 #配置日志
 logging.basicConfig(level=logging.INFO,format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
