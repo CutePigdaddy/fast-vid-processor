@@ -3,6 +3,7 @@ import time
 import uuid
 import requests
 import base64
+from datetime import timedelta
 
 # 辅助函数：下载文件
 def download_file(file_url):
@@ -14,9 +15,12 @@ def download_file(file_url):
 
 # 辅助函数：将本地文件转换为Base64
 def file_to_base64(file_path):
-    with open(file_path, 'rb') as file:
-        file_data = file.read()  # 读取文件内容
-        base64_data = base64.b64encode(file_data).decode('utf-8')  # Base64 编码
+    try:
+        with open(file_path, 'rb') as file:
+            file_data = file.read()  # 读取文件内容
+            base64_data = base64.b64encode(file_data).decode('utf-8')  # Base64 编码
+    except Exception as e:
+        raise Exception(f"读取文件失败: {e}")
     return base64_data
 
 # recognize_task 函数
@@ -67,28 +71,32 @@ def recognize_task(file_url=None, file_path=None):
         print(f'recognize task response header X-Api-Status-Code: {response.headers["X-Api-Status-Code"]}')
         print(f'recognize task response header X-Api-Message: {response.headers["X-Api-Message"]}')
         print(time.asctime() + " recognize task response header X-Tt-Logid: {}".format(response.headers["X-Tt-Logid"]))
-        print(f'recognize task response content is: {response.json()}\n')
     else:
         print(f'recognize task failed and the response headers are:: {response.headers}\n')
         exit(1)
     return response
 
 # recognizeMode 不变
-def recognizeMode(file_url=None, file_path=None):
+def recognizeMode(file_url=None, file_path=None,output_path=None):
     start_time = time.time()
     print(time.asctime() + " START!")
     recognize_response = recognize_task(file_url=file_url, file_path=file_path)
     code = recognize_response.headers['X-Api-Status-Code']
     logid = recognize_response.headers['X-Tt-Logid']
+    utterances=recognize_response.json().get("result", dict).get("utterances",[])
     if code == '20000000':  # task finished
-        f = open("result.json", mode='w', encoding='utf-8')
-        f.write(json.dumps(recognize_response.json(), indent=4, ensure_ascii=False))
-        f.close()
+        with open(output_path, mode='w', encoding='utf-8') as f:
+            for utterance in utterances:
+                start=str(timedelta(milliseconds=utterance.get("start_time",0)))[:-4]
+                end=str(timedelta(milliseconds=utterance.get("end_time",0)))[:-4]
+                text=utterance.get("text","")
+                f.write(f"[{start} - {end}] {text}\n")
         print(time.asctime() + " SUCCESS! \n")
         print(f"程序运行耗时: {time.time() - start_time:.6f} 秒")
     elif code != '20000001' and code != '20000002':  # task failed
         print(time.asctime() + " FAILED! code: {}, logid: {}".format(code, logid))
         print("headers:")
+        raise Exception("使用模型转文字时发生错误，错误码：{}，logid：{}".format(code, logid))
         # print(query_response.content)
 
 def main(): 
@@ -97,6 +105,15 @@ def main():
     file_path = "D:/User/Document/NJU Works/My Project/fast-vid-processor/backend/data/processed/separate_audiotrack/be520e39-9cdd-4e15-a923-1ac9f35b530b_audio_0.mp3"  # 如果你有本地文件，可以选择这个 
     recognizeMode(file_path=file_path)  # 或者 recognizeMode(file_path=file_path)
     # recognizeMode(file_path=file_path)  # 或者 recognizeMode(file_path=file_path)
- 
+
+
+def ASR(file_url=None, input_path=None,output_path=None):
+    recognizeMode(file_url=file_url, file_path=input_path,output_path=output_path)
+    return output_path
+
+
+
+
 if __name__ == '__main__': 
     main()
+    
