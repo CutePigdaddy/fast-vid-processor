@@ -2,8 +2,8 @@ import os
 import glob
 import logging
 from pathlib import Path
-from .modules.track import Separator, distractor
-from .modules.audio import LongAudioProcessor
+from modules.track import Separator, distractor
+from modules.audio import LongAudioProcessor
 from config import settings
 
 logger = logging.getLogger(__name__)

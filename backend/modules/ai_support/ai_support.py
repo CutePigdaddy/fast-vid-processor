@@ -11,6 +11,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List
+from config import settings
 from abc import ABC, abstractmethod
 
 # ============================================================================
@@ -531,14 +532,6 @@ class AISupport:
         print(f"✅ 系统初始化完成")
         print(f"   AI服务: {self.ai_config.get('provider', '未配置')}")
         print(f"   输出目录: {self.config.get('summarization', {}).get('output_dir', './summaries')}")
-
-    def _get_backend_data_dir(self) -> Path:
-        """获取backend/data目录路径"""
-        module_dir = Path(__file__).resolve().parent
-        backend_dir = module_dir.parents[2]
-        data_dir = backend_dir / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        return data_dir
     
     def _create_ai_client(self) -> BaseAIClient:
         """创建AI客户端"""
@@ -653,15 +646,17 @@ class AISupport:
             "metadata": Dict[str, Any]
         }
         """
-        data_dir = self._get_backend_data_dir()
-        input_path = data_dir / f"{file_hash}.text"
-        output_path = data_dir / f"{file_hash}.summary"
+        text_dir = settings.get_text_dir(settings.DATA_DIR, file_hash)
+        summary_dir = settings.get_summary_dir(settings.DATA_DIR, file_hash)
+        input_path = os.path.join(text_dir, f"{file_hash}.txt")
+        output_path = os.path.join(summary_dir, f"{file_hash}.txt")
 
         print(f"\n📂 开始分析文件: {input_path}")
 
-        if not input_path.exists():
+        if not os.path.exists(input_path):
             raise FileNotFoundError(f"文件不存在: {input_path}")
-
+        if not os.path.exists(summary_dir):
+            os.makedirs(summary_dir, exist_ok=True)
         processor = TranscriptProcessor(str(input_path))
         file_content = processor.get_content()
         metadata = processor.get_metadata()
@@ -676,8 +671,8 @@ class AISupport:
         except Exception as e:
             print(f"❌ 生成总结失败: {str(e)}")
             raise
-
-        output_path.write_text(summary, encoding="utf-8")
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(summary)    
 
         ai_model = self.ai_config.get('model', 'unknown')
         result = {

@@ -53,7 +53,7 @@ async def create_task(
     """
     if not file.filename or not file_hash:
         raise HTTPException(status_code=400, detail="文件不能为空")
-    file_origin_name, ext = os.path.splitext(file.filename)
+    file_origin_name = file.filename
     
     logger.info(f"[{file_hash}] 收到上传请求: filename={file_origin_name}, extract_audio={extract_audio}, transcribe={transcribe}, ai_summarize={ai_summarize}, extract_keyframes={extract_keyframes}")
     try:
@@ -63,7 +63,7 @@ async def create_task(
             raise HTTPException(status_code=400, detail="上传文件名不能为空")
         # 保存源文件到 data/<HASH>/source/<HASH><ext>
         source_dir = settings.get_source_dir(settings.DATA_DIR, file_hash)
-        save_path = os.path.join(source_dir, f"{file_origin_name}.{ext}")
+        save_path = os.path.join(source_dir, f"{file_origin_name}")
         if os.path.exists(save_path):
             logger.warning(f"[{file_hash}] 文件已存在: {save_path}")
         else:
@@ -122,6 +122,11 @@ async def create_task(
                 db.update_processed_operation(file_hash, "extract_keyframes", "pending", task_id=extract_keyframes_task_id)
                 workflow_tasks.append(extract_keyframes_task.si(file_hash, extract_keyframes_task_id).set(task_id=extract_keyframes_task_id))
                 response_tasks.append({"task_name": "extract_keyframes", "task_id": extract_keyframes_task_id})
+        if not workflow_tasks:
+            return {
+                "status": "skipped",
+                "tasks": response_tasks
+            }
         #数据库记录taskid
         workflow = chain(*workflow_tasks)
         workflow.apply_async()
@@ -142,20 +147,20 @@ def get_status(file_hash: str):
     获取文件处理状态。
     返回格式示例：
     {
-            "extract_audio": {
-                "status": "success",
+      "extract_audio": {
+        "status": "success",
         "task_id": "...",
         "result_path": "/path/to/audio.wav",
         "completed_at": "2026-02-10T10:30:00"
       },
       "transcribe": {
-                "status": "success",
+        "status": "success",
         "task_id": "...",
         "result_path": "/path/to/transcript.txt",
         "completed_at": "2026-02-10T10:35:00"
       },
       "ai_summarize": {
-                "status": "success",
+        "status": "success",
         "task_id": "...",
         "result_path": "/path/to/summary.md",
         "completed_at": "2026-02-10T10:40:00"

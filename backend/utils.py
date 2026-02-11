@@ -1,6 +1,4 @@
-import hashlib
 import os
-import shutil
 import zipfile
 import aiofiles
 from fastapi import UploadFile
