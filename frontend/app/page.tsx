@@ -6,6 +6,7 @@ import {
   Menu, X, Plus, Trash2, Edit2, Check, VideoOff, FileText, 
   Music, Film, BrainCircuit, Download, Copy, ChevronRight
 } from 'lucide-react';
+import SparkMD5 from 'spark-md5';
 
 // --- 配置区域 ---
 
@@ -56,29 +57,17 @@ async function computeFileHash(file: File): Promise<string> {
   }
 
   const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+  const spark = new SparkMD5.ArrayBuffer();
   let offset = 0;
-  const chunks: ArrayBuffer[] = [];
 
   while (offset < file.size) {
     const slice = file.slice(offset, offset + CHUNK_SIZE);
     const buffer = await slice.arrayBuffer();
-    chunks.push(buffer);
+    spark.append(buffer);
     offset += CHUNK_SIZE;
   }
   
-  const totalLen = chunks.reduce((acc, c) => acc + c.byteLength, 0);
-  const combined = new Uint8Array(totalLen);
-  let pos = 0;
-  for(const c of chunks) {
-    combined.set(new Uint8Array(c), pos);
-    pos += c.byteLength;
-  }
-
-  const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  return hashHex.substring(0, 32);
+  return spark.end();
 }
 
 // --- Mock Store (用于模拟后端状态随时间变化) ---
@@ -834,7 +823,7 @@ export default function VideoASRApp() {
               <div className="text-center">
                  <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
                  <h3 className="text-lg font-bold text-gray-800">正在计算文件指纹...</h3>
-                 <p className="text-gray-500 text-sm mt-2">使用 SHA-256 确保文件唯一性</p>
+                 <p className="text-gray-500 text-sm mt-2">使用 MD5 确保文件唯一性</p>
               </div>
             )}
           </div>
