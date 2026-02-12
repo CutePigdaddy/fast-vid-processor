@@ -538,7 +538,7 @@ export default function VideoASRApp() {
       };
 
       fetchDetail();
-    }, [subTask, type, task.fileHash]);
+    }, [subTask?.taskId, subTask?.status, type, task.fileHash]);
 
     if (!subTask) return <div className="text-gray-400 p-8 text-center">该任务未初始化或未选择</div>;
 
