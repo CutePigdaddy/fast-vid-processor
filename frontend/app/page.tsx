@@ -823,7 +823,7 @@ export default function VideoASRApp() {
               <div className="text-center">
                  <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
                  <h3 className="text-lg font-bold text-gray-800">正在计算文件指纹...</h3>
-                 <p className="text-gray-500 text-sm mt-2">使用 MD5 确保文件唯一性</p>
+                 <p className="text-gray-500 text-sm mt-2">使用 MD5 生成文件标识</p>
               </div>
             )}
           </div>
