@@ -717,7 +717,17 @@ export default function VideoASRApp() {
                 )}
                 <button 
                   aria-label="删除任务" // 修复3：添加 aria-label
-                  onClick={(e) => { e.stopPropagation(); setTasks(prev => prev.filter(t => t.id !== task.id)); }}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    // Stop polling for this task
+                    stopPolling(task.fileHash);
+                    // Revoke blob URL to free memory
+                    if (task.previewUrl) {
+                      URL.revokeObjectURL(task.previewUrl);
+                    }
+                    // Remove task from state
+                    setTasks(prev => prev.filter(t => t.id !== task.id)); 
+                  }}
                   className="absolute right-2 top-3 opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-slate-500 transition-opacity"
                 >
                   <Trash2 size={14} />
