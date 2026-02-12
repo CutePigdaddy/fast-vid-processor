@@ -397,6 +397,13 @@ export default function VideoASRApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded]);
 
+  // 清理轮询
+  useEffect(() => {
+    return () => {
+      Object.values(pollIntervals.current).forEach(clearInterval);
+    };
+  }, []);
+
   // --- 交互处理 ---
 
   // 1. 文件选择
