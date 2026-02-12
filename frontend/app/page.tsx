@@ -529,9 +529,29 @@ export default function VideoASRApp() {
           }
           
           // 如果是文本类且已完成，获取文本
-          if (subTask.status === 'success' && (type === 'transcribe' || type === 'ai_summarize')) {
-            const textData = await apiService.getTextContent(task.fileHash);
-            setTextContent(textData.text_content);
+          if (subTask.status === 'success') {
+            if (type === 'transcribe') {
+              const textData = await apiService.getTextContent(task.fileHash);
+              setTextContent(textData.text_content);
+            } else if (type === 'ai_summarize' && subTask.taskId) {
+              // 对于 AI 总结任务，通过 taskId 获取总结结果，而不是使用文件转写文本接口
+              const response = await fetch(`${API_BASE_URL}/tasks/${subTask.taskId}/result`, {
+                method: 'GET',
+              });
+              if (!response.ok) {
+                throw new Error(`Failed to fetch summary result for task ${subTask.taskId}`);
+              }
+              // 后端可以返回纯文本或 JSON，这里优先尝试 JSON，再回退到纯文本
+              let summaryText = '';
+              const contentType = response.headers.get('content-type') || '';
+              if (contentType.includes('application/json')) {
+                const json = await response.json();
+                summaryText = json.text_content || json.summary || json.result || '';
+              } else {
+                summaryText = await response.text();
+              }
+              setTextContent(summaryText);
+            }
           }
         } catch (e) { console.error(e); }
         setLoading(false);
