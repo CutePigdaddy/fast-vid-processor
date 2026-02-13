@@ -2,7 +2,7 @@ import logging
 import os
 from celery import Celery
 from config import settings
-from to_text import process_video_to_text, extract_audio_step, separate_vocal_step, transcribe_vocal_step
+from to_text import process_video_to_text, extract_audio_step, separate_vocal_step, transcribe_vocal_step, transcribe_vocal_step_online
 from utils import zip_keyframes
 from modules.database import db
 from modules.vision import extract_frames
@@ -84,7 +84,7 @@ def asr_task(self, file_hash: str, task_id: str = None):
     db.update_processed_operation(file_hash, "transcribe", "running", task_id=task_id)
     db.update_task_started(task_id)
     try:
-        output_file = transcribe_vocal_step(file_hash)
+        output_file = transcribe_vocal_step_online(file_hash)
         db.update_processed_operation(file_hash, "transcribe", "success", result_path=output_file, task_id=task_id)
         db.update_task_completed(task_id, "success",result_path=output_file)
         return {"output_file": output_file, "status": "success"}
