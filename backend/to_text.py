@@ -68,7 +68,10 @@ def transcribe_vocal_step(file_hash: str):
     processor = LongAudioProcessor(model_size="medium")
     final_text_path = os.path.join(text_dir, f"{file_hash}.txt")
     
-    result = processor.process_long_audio(vocal_path)
+    track_dir = settings.get_track_dir(settings.DATA_DIR, file_hash)
+    track_path = os.path.join(track_dir, f"{file_hash}.mp3")
+    
+    result = processor.process_long_audio(track_path)
     processor.save_transcription_with_timestamps(result, final_text_path)
     
     return final_text_path
@@ -78,9 +81,9 @@ def transcribe_vocal_step_online(file_hash: str):
     text_dir = settings.get_text_dir(settings.DATA_DIR, file_hash)
     os.makedirs(text_dir, exist_ok=True)
     final_text_path = os.path.join(text_dir, f"{file_hash}.txt")
-    vocal_dir = settings.get_vocal_dir(settings.DATA_DIR, file_hash)
-    vocal_path = os.path.join(vocal_dir, f"{file_hash}.mp3")
-    result=ASR(input_path=vocal_path,output_path=final_text_path)
+    track_dir = settings.get_track_dir(settings.DATA_DIR, file_hash)
+    track_path = os.path.join(track_dir, f"{file_hash}.mp3")
+    result=ASR(input_path=track_path,output_path=final_text_path)
     return result
 
 def process_video_to_text(file_hash: str, task_instance=None):

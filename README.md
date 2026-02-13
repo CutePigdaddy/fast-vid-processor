@@ -1,70 +1,126 @@
 # Fast Video Processor (FastVidProcessor)
 
-一个高效的音视频处理框架，旨在实现视频到文字的自动化转录。该项目集成了音轨提取、人声分离、音频压缩以及基于 `faster-whisper` 的长音频转录功能。
+一个全栈式的高效音视频处理平台，旨在实现视频内容的深度分析与转化。该项目集成了自动语音转录（ASR）、人声分离、AI 摘要生成、关键帧提取以及 OCR 识别等功能，并提供了现代化的 Web 界面进行交互。
 
-## 🚀 主要功能
+## 🚀 核心功能
 
-- **离线视频批量处理**：支持遍历文件夹，自动提取视频音轨并转换为带时间戳的文本。
-- **在线视频转码**：支持通过 URL（如 Bilibili）直接下载音频并进行转录处理。
-- **人声分离与增强**：通过 `modules/track` 模块分离背景音乐与人声，提取纯净语音。
-- **高效转录**：利用 `faster-whisper` (Whisper medium 模型) 实现高性能的语音识别。
-- **视觉辅助 (准备中)**：内置关键帧提取与 OCR 识别模块，可用于提取视频中的文本信息。
+*   **全栈架构**：基于 FastAPI (后端) + Next.js (前端) + Celery (异步任务) 的现代化架构。
+*   **高效转录**：利用 `faster-whisper` 实现高性能的语音识别，支持长音频精准转写。
+*   **智能音频处理**：
+    *   **人声分离**：自动分离背景音乐与人声，提取纯净语音。
+    *   **音轨提取**：支持从视频中快速提取音频。
+*   **视频内容分析**：
+    *   **关键帧提取**：智能提取视频关键画面。
+    *   **OCR 识别**：识别视频画面中的文字信息 (开发中)。
+*   **AI 辅助**：集成 AI 模块，对转录文本进行摘要生成和关键信息提取。
+*   **多源支持**：支持本地上传视频，以及在线视频流（如 Bilibili）的处理。
+*   **容器化部署**：提供完整的 Docker 支持，一键启动所有服务。
 
-## 📦 安装说明
+## 🏗️ 系统架构
 
-### 1. 环境要求
-- Python 3.10+
-- **FFmpeg**: 请确保系统中已安装 FFmpeg。
+*   **Frontend**: Next.js (React) - 提供用户交互界面。
+*   **Backend**: FastAPI - 处理 API 请求，管理任务调度。
+*   **Worker**: Celery - 异步处理耗时的视频/音频处理任务。
+*   **Broker**: Redis - 消息队列与结果存储。
+*   **Core Modules**: 包含音频处理 (`modules/audio`)、视觉处理 (`modules/vision`)、在线流媒体 (`modules/online`) 等核心算法模块。
 
-### 2. 安装依赖
-由于包含 PyTorch CUDA 版本和 PaddlePaddle，建议按以下顺序安装：
+## 📦 快速部署 (Docker) - 推荐
+
+使用 Docker Compose 可以一键启动整个项目，无需手动配置复杂的环境依赖（如 FFmpeg, CUDA, Redis 等）。
+
+### 前置要求
+*   [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) 或 Docker Engine (Linux)
+
+### 启动步骤
+
+1.  **克隆仓库**
+    ```bash
+    git clone https://github.com/YourUsername/fast-vid-processor.git
+    cd fast-vid-processor
+    ```
+
+2.  **构建并启动服务**
+    ```bash
+    docker-compose up --build
+    ```
+    *首次启动需要下载模型和构建镜像，可能需要一些时间。*
+
+3.  **访问应用**
+    *   **Web 前端**: [http://localhost:3000](http://localhost:3000)
+    *   **后端 API 文档**: [http://localhost:8080/docs](http://localhost:8080/docs)
+    *   **Redis**: 运行在端口 `6379`
+
+## 🛠️ 本地开发指南
+
+如果你希望在本地分别运行前后端进行开发调试：
+
+### 1. 后端 (Backend)
+
+**环境要求**: Python 3.10+, Redis, FFmpeg
 
 ```bash
-# 克隆仓库
-git clone https://github.com/CutePigdaddy/fast-vid-processor
-cd fast-vid-processor
+cd backend
 
-# 安装主要依赖
+# 1. 创建虚拟环境 (可选)
+python -m venv venv
+source venv/bin/activate  # Linux/Mac
+# .\venv\Scripts\activate # Windows
+
+# 2. 安装依赖 (PyTorch 请根据官网指引安装对应 CUDA 版本)
 pip install -r requirements.txt
+
+# 3. 启动 Redis (必须)
+# 请确保通过 Docker 或本地安装启动了 Redis 服务
+
+# 4. 启动 Celery Worker (处理异步任务)
+celery -A tasks worker --loglevel=info
+
+# 5. 启动 FastAPI 服务
+python -m uvicorn api:app --reload --port 8000
 ```
 
-*注意：如果需要 GPU 加速，请确保安装了匹配的 CUDA 驱动（项目默认配置为 CUDA 12.x）。*
+### 2. 前端 (Frontend)
 
-## 🛠️ 快速上手
+**环境要求**: Node.js 18+
 
-### 1. 离线批量处理视频
-在 `video_to_text.py` 中使用：
+```bash
+cd frontend
 
-```python
-from video_to_text import batch_offline_videos
+# 1. 安装依赖
+npm install
+# 或 yarn install / pnpm install
 
-source_dir = "path/to/your/videos"
-output_root = "results"
-batch_offline_videos(source_dir, output_root)
+# 2. 启动开发服务器
+npm run dev
 ```
-
-### 2. 在线视频转录 (以 Bilibili 为例)
-在 `video_to_text.py` 中使用：
-
-```python
-from video_to_text import batch_online_videos
-
-video_url = "https://www.bilibili.com/video/BV1..."
-batch_online_videos(video_url, output_root="Audio")
-```
+访问 [http://localhost:3000](http://localhost:3000) 查看前端页面。
 
 ## 📂 项目结构
 
-```text
-├── modules/
-│   ├── audio/   # 音频处理核心 (faster-whisper 封装)
-│   ├── online/  # 在线视频爬虫与下载 (Bilibili 等)
-│   ├── track/   # 音轨操作 (提取、分离、压缩)
-│   └── vision/  # 视觉处理 (关键帧、OCR)
-├── video_to_text.py # 主入口脚本
-└── requirements.txt # 依赖列表
+```
+fast-vid-processor/
+├── backend/                # 后端代码 (FastAPI)
+│   ├── api.py              # API 入口
+│   ├── tasks.py            # Celery 任务定义
+│   ├── modules/            # 核心处理逻辑 (Audio, Vision, AI, etc.)
+│   └── Dockerfile
+├── frontend/               # 前端代码 (Next.js)
+│   ├── app/                # 页面逻辑
+│   └── Dockerfile
+├── data/                   # 数据存储目录 (Docker 挂载卷)
+├── docker-compose.yml      # Docker 编排文件
+└── README.md
 ```
 
-## 📜 许可证
-本项目采用 [LICENSE](LICENSE) 中所述的开源协议。
+## 📝 API 接口说明
+
+后端服务启动后，可访问 `/docs` 查看交互式 Swagger 文档。主要接口包括：
+
+*   `POST /tasks/{file_hash}`: 上传文件并创建处理任务（支持选择是否提取音频、转录、AI摘要等）。
+*   `GET /tasks/{task_id}`: 查询任务处理状态及进度。
+*   `GET /results/{task_id}/download`: 下载处理结果。
+
+## 📄 License
+
+[MIT License](LICENSE)
 
