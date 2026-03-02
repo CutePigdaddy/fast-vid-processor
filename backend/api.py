@@ -32,8 +32,8 @@ app.add_middleware(
 
 @app.post("/tasks/{file_hash}")
 async def create_task(
+    file_hash: str,
     file: UploadFile = File(...),
-    file_hash: str = Form(...),
     extract_audio: bool = Form(False),
     transcribe: bool = Form(False),
     ai_summarize: bool = Form(False),
@@ -63,7 +63,7 @@ async def create_task(
             raise HTTPException(status_code=400, detail="上传文件名不能为空")
         # 保存源文件到 data/<HASH>/source/<HASH><ext>
         source_dir = settings.get_source_dir(settings.DATA_DIR, file_hash)
-        save_path = os.path.join(source_dir, f"{file_origin_name}")
+        save_path = os.path.join(source_dir, f"{file_hash}{os.path.splitext(file_origin_name)[1]}")
         if os.path.exists(save_path):
             logger.warning(f"[{file_hash}] 文件已存在: {save_path}")
         else:
@@ -257,10 +257,12 @@ def download_file(task_id: str):
     file_path = task['result_path']
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="文件尚未生成或不存在")
-
+    origin_name = db.get_file_info(task['file_hash']).get('original_name', 'result')  
+    result_name = os.path.basename(file_path)
+    filename = f"{os.path.splitext(origin_name)[0]}_{task['task_type']}{os.path.splitext(result_name)[1]}"
     return FileResponse(
         path=file_path,
-        filename=os.path.basename(file_path),
+        filename=filename,
         media_type='application/octet-stream'
     )
 
@@ -293,4 +295,35 @@ def get_text_content(file_hash: str):
     return {
         "file_hash": file_hash,
         "text_content": content
+    }
+
+@app.get("/files/{file_hash}/summary")
+def get_summary_content(file_hash: str):
+    """
+    直接获取AI摘要内容（前端展示用）。
+    返回格式:
+    {
+        "file_hash": "...",
+        "summary_content": "AI摘要内容..."
+    }
+
+    :param file_hash: 文件的唯一标识（MD5 哈希值）。
+    :return: AI摘要内容。
+    """
+    #数据库查询状态
+    status = db.has_operation_completed(file_hash, "ai_summarize")
+    if not status:
+        raise HTTPException(status_code=400, detail="AI摘要任务未完成")
+    
+    summary_path = os.path.join(settings.get_summary_dir(settings.DATA_DIR, file_hash), f"{file_hash}.txt")
+    
+    if not os.path.exists(summary_path):
+        raise HTTPException(status_code=404, detail="摘要文件不存在")
+    
+    with open(summary_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    
+    return {
+        "file_hash": file_hash,
+        "summary_content": content
     }
