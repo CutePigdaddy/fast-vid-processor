@@ -1,9 +1,9 @@
 import ffmpeg
 import requests
-from static_ffmpeg import add_paths
+#from static_ffmpeg import add_paths
 import os
 import re
-add_paths()
+#add_paths()
 HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
   "Referer": "https://www.bilibili.com"

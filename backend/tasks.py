@@ -1,6 +1,7 @@
 import logging
 import os
 from celery import Celery
+from modules.vision.keyframe_extractor import extract_frames_fast
 from config import settings
 from to_text import process_video_to_text, extract_audio_step, separate_vocal_step, transcribe_vocal_step, transcribe_vocal_step_online
 from utils import zip_keyframes
@@ -104,7 +105,7 @@ def extract_keyframes_task(self, file_hash: str, task_id: str = None):
     input_file = os.path.join(settings.get_source_dir(settings.DATA_DIR, file_hash), f"{file_hash}.mp4")
     try:
         output_dir = settings.get_keyframes_dir(settings.DATA_DIR, file_hash)
-        extract_frames(input_file, output_dir)
+        extract_frames_fast(input_file, output_dir)
         zip_path = zip_keyframes(output_dir, file_hash)
         db.update_processed_operation(file_hash, "extract_keyframes", "success", result_path=zip_path, task_id=task_id)
         db.update_task_completed(task_id, "success",result_path=zip_path)

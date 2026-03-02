@@ -3,7 +3,7 @@ import glob
 import logging
 from pathlib import Path
 from modules.track import Separator, distractor
-from modules.audio import ASR, LongAudioProcessor
+from modules.audio import ASR
 from config import settings
 
 logger = logging.getLogger(__name__)
